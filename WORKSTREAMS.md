@@ -181,6 +181,23 @@ Every Claude Code session appends an entry here before handing control back. Kee
   - shadcn init wrote `components/ui/button.tsx` and `lib/utils.ts`; `components.json` present.
   - Did NOT yet: initialize `.venv` for ml-service, run `pytest`, deploy anything, touch cloud state.
 
+### 2026-04-18 — Session 2 — Phase 1 foundation (all tracks)
+- **Did:**
+  - Wrote initial migration `supabase/migrations/20260419014526_initial_schema.sql` covering all 5 tables + pgvector(384) + IVFFlat index per ARCHITECTURE.md § Database Schema. NOT NULL constraints on all `portfolio_id` / `document_id` FKs.
+  - Applied locally (`supabase db reset`) and remotely (`supabase db push` to `papbpbuayuorqzbvwrnb`).
+  - ML service: added module-level Supabase client using `SUPABASE_SERVICE_ROLE_KEY`; `/health` probes `portfolios` via cheap `select('id').limit(1)` and returns 503 (not 200) when DB unreachable. Disabled FastAPI `/docs`, `/redoc`, `/openapi.json`.
+  - Frontend: `lib/types.ts` (shared row types), `lib/supabase.ts` (browser + cookies-aware async server factories via `@supabase/ssr`), `app/api/ml/[...path]/route.ts` (hard-allowlisted proxy — GET health, POST ingest, POST train only — stamps `Authorization: Bearer ${INTERNAL_API_TOKEN}`, pins `content-type: application/json` for non-GETs), new `app/page.tsx` that reads `portfolios` server-side and fetches `/api/ml/health` through the proxy using origin derived from `headers()` (works on Vercel).
+  - Adversarial review by Codex caught 2 HIGH + 3 MEDIUM + 1 LOW findings; all fixed. Smoke test also caught that `supabase-py` 2.9 doesn't accept `head=True` on `.select()` (JS SDK only) — replaced with `.limit(1)`.
+  - Vercel: project `enlaye` created under `zh-3135s-projects`, linked `frontend/`, set production env: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `INTERNAL_API_TOKEN`, `ML_SERVICE_URL=https://ml-service-production-513e.up.railway.app`.
+  - Railway: project `enlaye-ml-service` / service `ml-service`; set prod env `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `INTERNAL_API_TOKEN`; public domain generated; initial deploy via `railway up --detach`.
+- **Changed:** `IMPLEMENTATION.md` (Phase 0 + Phase 1 checkboxes), `frontend/.gitignore` (+ `.vercel/`), `WORKSTREAMS.md` (this entry).
+- **Next:** Commit + push to `main` to trigger Vercel auto-deploy; curl-check prod `/` and `/api/ml/health` end-to-end; then start Phase 2 (CSV ingest).
+- **Notes:**
+  - Railway service was created empty (not from GitHub repo), so `git push` alone won't auto-deploy ML service — we use `railway up` from the CLI. Can wire GH integration later if desired.
+  - `--scope zh-3135` on `vercel link` is rejected (it's a personal account, not an org); omitted and it works.
+  - Supabase Python SDK call shape differs from JS — watch for that in Phase 2.
+  - IVFFlat index logs a "little data" NOTICE at migration time; expected for an empty table.
+
 <!-- New sessions append above this line, below the Session 0 entry -->
 
 ---

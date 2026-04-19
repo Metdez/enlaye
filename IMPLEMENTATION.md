@@ -32,8 +32,8 @@ Goal: scaffold the repo and all three runtimes. No feature code.
 - [x] `supabase init` and verify `supabase/` directory created
 - [x] Create `.env.local` template in frontend, `.env.example` in ml-service
       <!-- NOTE: wrote real `.env.local` and `.env` derived from root `.env` (all gitignored). Formal `.env.example` templates to be added before first public push. -->
-- [ ] First commit: `chore: initial scaffold`
-- [ ] Update WORKSTREAMS.md § Session Log
+- [x] First commit: `chore: initial scaffold`
+- [x] Update WORKSTREAMS.md § Session Log
 
 **Acceptance:** `npm run dev` works (shows Next.js default page), `uvicorn main:app` works (responds to `/health`), `supabase start` works, no secrets in git.
 
@@ -43,16 +43,22 @@ Goal: scaffold the repo and all three runtimes. No feature code.
 
 Goal: the three runtimes can talk to each other and to the database. Still no user-facing features.
 
-- [ ] Create first migration with all tables from ARCHITECTURE.md § Database Schema
-- [ ] Run migration locally: `supabase db reset`
-- [ ] Run migration on remote: `supabase db push`
-- [ ] Frontend: create `lib/supabase.ts` client using env vars
-- [ ] Frontend: verify a basic page can read from `portfolios` table (even if empty)
-- [ ] ML service: add Supabase client setup in `main.py` using service_role key
-- [ ] ML service: `/health` endpoint returns `{ status: "ok", db_reachable: true }` after testing DB connection
-- [ ] Frontend: create a Next.js API route `/api/ml/*` that proxies to Python service with bearer token
-- [ ] Vercel: `vercel link --yes`, then `vercel env add` for each `NEXT_PUBLIC_*` var (CLI, no dashboard)
-- [ ] Railway: `railway init` (or `railway link`), then `railway variables set KEY=value` for service env (CLI, no dashboard)
+- [x] Create first migration with all tables from ARCHITECTURE.md § Database Schema
+      <!-- NOTE: added NOT NULL to portfolio_id / document_id FKs after adversarial review. -->
+- [x] Run migration locally: `supabase db reset`
+- [x] Run migration on remote: `supabase db push`
+- [x] Frontend: create `lib/supabase.ts` client using env vars
+      <!-- NOTE: exposes `createBrowserSupabase()` + async `createServerSupabase()` (cookies-aware). -->
+- [x] Frontend: verify a basic page can read from `portfolios` table (even if empty)
+- [x] ML service: add Supabase client setup in `main.py` using service_role key
+- [x] ML service: `/health` endpoint returns `{ status: "ok", db_reachable: true }` after testing DB connection
+      <!-- NOTE: now returns 503 when DB probe fails (readiness semantics). -->
+- [x] Frontend: create a Next.js API route `/api/ml/*` that proxies to Python service with bearer token
+      <!-- NOTE: hard-allowlists health/ingest/train; FastAPI /docs/redoc/openapi disabled. -->
+- [x] Vercel: `vercel link --yes`, then `vercel env add` for each `NEXT_PUBLIC_*` var (CLI, no dashboard)
+      <!-- NOTE: project `enlaye` under zh-3135s-projects; NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, INTERNAL_API_TOKEN, ML_SERVICE_URL all set for production. -->
+- [x] Railway: `railway init` (or `railway link`), then `railway variables set KEY=value` for service env (CLI, no dashboard)
+      <!-- NOTE: project `enlaye-ml-service` / service `ml-service`; public URL https://ml-service-production-513e.up.railway.app. -->
 - [ ] `git push origin main` — verify Vercel and Railway auto-build via `vercel logs` and `railway logs`
 - [ ] Curl-check prod URLs (`/` for frontend, `/health` for ml-service)
 
