@@ -1,11 +1,11 @@
-// Supabase client factories for the frontend.
-// WHY: Next.js App Router has three execution contexts — browser, server
-// components, and route handlers — and @supabase/ssr wants a per-request
-// cookie adapter on the server. Expose two factories rather than a
-// singleton so we never accidentally share cookies or credentials across
-// requests.
+// Server-side Supabase client factory for the frontend.
+// WHY: this module imports `next/headers`, which is server-only. Any import
+// of this file pulls `next/headers` into the importer's bundle, so client
+// components MUST use [supabase-browser.ts](./supabase-browser.ts) — there
+// is deliberately no re-export of `createBrowserSupabase` here to prevent
+// an accidental client import from silently dragging `next/headers` in.
 
-import { createBrowserClient, createServerClient } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 // NOTE: only NEXT_PUBLIC_* vars are readable in client bundles. Missing
@@ -18,11 +18,6 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. " +
       "Derive frontend/.env.local from the root .env before running.",
   );
-}
-
-/** Browser-safe client. Anon key only. */
-export function createBrowserSupabase() {
-  return createBrowserClient(SUPABASE_URL!, SUPABASE_ANON_KEY!);
 }
 
 /** Server client for App Router server components / route handlers. */

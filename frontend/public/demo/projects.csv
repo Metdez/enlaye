@@ -1,0 +1,16 @@
+project_id,project_name,project_type,contract_value_usd,start_date,end_date,region,subcontractor_count,delay_days,cost_overrun_pct,safety_incidents,payment_disputes,final_status
+PRJ001,Harbor Bridge Expansion,Infrastructure,45000000,2021-03-01,2023-08-15,Northeast,12,47,8.2,2,1,Completed
+PRJ002,Downtown Office Tower,Commercial,28000000,2020-11-01,2022-05-30,Southeast,8,0,2.1,0,0,Completed
+PRJ003,Coastal Highway Rehab,Infrastructure,67000000,2022-01-15,,Southwest,19,,,3,5,In Progress
+PRJ004,Industrial Warehouse Complex,Industrial,15000000,2021-06-01,2022-12-31,Midwest,5,12,4.7,1,0,Completed
+PRJ005,University Science Building,Commercial,52000000,2021-09-01,2024-02-28,Northeast,14,89,18.4,4,3,Completed
+PRJ006,Solar Farm Installation,Energy,31000000,2022-04-01,,Mountain,7,0,1.2,0,0,In Progress
+PRJ007,Wastewater Treatment Plant,Infrastructure,88000000,2020-06-01,2023-11-30,Southeast,23,134,26.7,6,8,Completed
+PRJ008,Retail Shopping Center,Commercial,22000000,2022-08-01,,Midwest,6,15,3.4,1,2,In Progress
+PRJ009,Airport Terminal Expansion,Infrastructure,120000000,2019-12-01,2023-06-30,Northeast,31,201,34.1,9,12,Completed
+PRJ010,Residential Tower Block A,Residential,18000000,2021-03-01,2023-01-31,Southeast,7,28,6.8,2,1,Completed
+PRJ011,Wind Farm Phase 1,Energy,44000000,2022-02-01,,Mountain,10,5,0.8,0,0,In Progress
+PRJ012,Hospital Renovation,Commercial,35000000,2020-08-01,2022-10-31,Midwest,11,67,13.2,3,4,Completed
+PRJ013,Rail Yard Modernization,Infrastructure,72000000,2021-11-01,,Southwest,18,,11.4,,2,In Progress
+PRJ014,Data Center Build,Industrial,29000000,2022-05-01,2023-09-30,Northeast,7,0,0.0,0,0,Completed
+PRJ015,Bridge Deck Replacement,Infrastructure,19000000,2022-09-01,,Southeast,6,22,,1,1,In Progress
