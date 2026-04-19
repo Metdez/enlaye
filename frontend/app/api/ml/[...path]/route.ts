@@ -20,6 +20,10 @@ const ALLOWED: ReadonlyArray<{ method: "GET" | "POST"; path: string }> = [
   { method: "GET", path: "health" },
   { method: "POST", path: "ingest" },
   { method: "POST", path: "train" },
+  { method: "POST", path: "analyze" },
+  { method: "POST", path: "simulate" },
+  { method: "POST", path: "projects/upsert" },
+  { method: "POST", path: "projects/delete" },
 ];
 
 function isAllowed(method: string, pathSegments: string[]): boolean {

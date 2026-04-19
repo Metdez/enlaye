@@ -12,17 +12,20 @@ See ARCHITECTURE.md § Security Model.
 
 from __future__ import annotations
 
+import datetime as _dt
 import logging
+import math
 import os
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import pandas as pd
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from supabase import Client, create_client
 
 import cleaning
+from drivers import compute_rules
 from models import (
     MINIMUM_TRAINING_SAMPLES,
     InsufficientTrainingData,
@@ -30,6 +33,9 @@ from models import (
     train_naive_model,
     train_pre_construction_model,
 )
+from risk import compute_scores
+from scenarios import simulate as run_simulation
+from segments import compute_segments_df
 
 load_dotenv()
 
@@ -136,6 +142,63 @@ class ModelRunResult(BaseModel):
 class TrainResponse(BaseModel):
     naive: ModelRunResult
     pre_construction: ModelRunResult
+
+
+class AnalyzeRequest(BaseModel):
+    portfolio_id: str = Field(..., description="UUID of the portfolio to recompute")
+
+
+class AnalyzeResponse(BaseModel):
+    portfolio_id: str
+    n_projects: int
+    n_rules: int
+
+
+# ---- /simulate schemas ----
+
+# WHY: the request mirrors the four inputs the scenarios.py encoder
+# consumes. `k` is capped at 20 because the encoded feature space is
+# tiny (≈7 columns for the demo) and larger cohorts dilute the "similar
+# projects" signal the UI surfaces; ge=1 so we always return something.
+class SimulateRequest(BaseModel):
+    portfolio_id: str
+    project_type: str
+    region: str
+    contract_value_usd: float = Field(..., ge=0)
+    subcontractor_count: int = Field(..., ge=0)
+    k: int = Field(5, ge=1, le=20)
+
+
+class SimulateOutcomeRange(BaseModel):
+    p25: float | None
+    p50: float | None
+    p75: float | None
+    n: int
+    confidence: Literal["low", "medium", "high"]
+
+
+class SimulateOutcomeRate(BaseModel):
+    rate: float | None
+    ci_low: float
+    ci_high: float
+    n: int
+    confidence: Literal["low", "medium", "high"]
+
+
+class SimulateOutcomes(BaseModel):
+    delay_days: SimulateOutcomeRange
+    cost_overrun_pct: SimulateOutcomeRange
+    safety_incidents: SimulateOutcomeRange
+    any_dispute: SimulateOutcomeRate
+
+
+class SimulateResponse(BaseModel):
+    portfolio_id: str
+    cohort_size: int
+    k_requested: int
+    similar_project_ids: list[str]
+    outcomes: SimulateOutcomes
+    caveats: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -673,3 +736,746 @@ def train(
             n_training_samples=int(pre_construction_result["n_training_samples"]),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# /analyze — risk intelligence refresh
+# ---------------------------------------------------------------------------
+
+# WHY: /analyze orchestrates the three pure-function modules (segments,
+# risk, drivers) and materialises their outputs into `project_segments`,
+# `risk_scores`, and `heuristic_rules`. Idempotent: each call deletes the
+# portfolio's existing rows in all three tables before inserting fresh
+# ones. supabase-py doesn't expose real transactions; if a mid-way write
+# fails we log and re-raise so the caller sees a 500 and can retry.
+# At 10k+ rows this will need to move off the write path (job queue or
+# scheduled task); see the phase plan's risks section.
+# TODO(claude): move off the request path when row_count > ~5k.
+
+# WHY: these are the columns the risk + segments + drivers modules read
+# from the raw row dicts. Keep in sync with the SELECT below — adding a
+# new feature to any of the three modules means adding its source column
+# here so the in-memory DataFrame has it.
+_ANALYZE_FETCH_COLUMNS: tuple[str, ...] = (
+    "id",
+    "project_id_external",
+    "portfolio_id",
+    "project_type",
+    "contract_value_usd",
+    "start_date",
+    "end_date",
+    "region",
+    "subcontractor_count",
+    "delay_days",
+    "cost_overrun_pct",
+    "safety_incidents",
+    "payment_disputes",
+    "final_status",
+    "actual_duration_days",
+    "anomaly_flags",
+)
+
+
+def _records_to_analyze_frame(records: list[dict[str, Any]]) -> pd.DataFrame:
+    """Build a DataFrame with the shape the analyze pipeline expects.
+
+    Mirrors `_records_to_training_frame` but for the analyze column set.
+    WHY separate: /train and /analyze each pin their own column list so
+    changes to one don't silently widen the other's contract.
+    """
+    df = pd.DataFrame.from_records(records)
+    for col in _ANALYZE_FETCH_COLUMNS:
+        if col not in df.columns:
+            df[col] = pd.Series(dtype="object")
+    for col in ("start_date", "end_date"):
+        df[col] = pd.to_datetime(df[col], errors="coerce")
+    # Numeric columns come back from Postgres as Python ints / floats /
+    # None; pandas infers object dtype on mixed None+int. Coerce the
+    # ones the modules do arithmetic on so NaN-propagation works.
+    for col in (
+        "contract_value_usd",
+        "subcontractor_count",
+        "delay_days",
+        "cost_overrun_pct",
+        "safety_incidents",
+        "payment_disputes",
+        "actual_duration_days",
+    ):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df[list(_ANALYZE_FETCH_COLUMNS)]
+
+
+def _jsonable(value: Any) -> Any:
+    """Coerce pandas / numpy scalars into JSON-safe Python primitives.
+
+    WHY: numpy's int64 / float64 survive dict construction but trip up
+    the Supabase REST serializer with TypeError. Same deal with pandas'
+    NA sentinel. One shared helper keeps the insert builders clean.
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if pd.isna(value) is True:  # covers pd.NA, NaT, np.nan uniformly
+        return None
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
+def _analyze_portfolio(client: Client, portfolio_id: str) -> AnalyzeResponse:
+    """Internal analyze helper — reused by /analyze and the 8c mutation endpoints.
+
+    WHY: /projects/upsert and /projects/delete need to refresh the three
+    derived tables after a write. Hitting the HTTP endpoint internally
+    would add a round-trip, double-audit the bearer token, and make unit
+    testing gnarlier. Extracting the body into one function keeps the
+    /analyze response contract intact while letting feedback-loop writes
+    call the same code path in-process.
+    """
+    logger.info("analyze.start portfolio_id=%s", portfolio_id)
+
+    # ---- 1. Load projects ----
+    projects_resp = (
+        client.table("projects")
+        .select(",".join(_ANALYZE_FETCH_COLUMNS))
+        .eq("portfolio_id", portfolio_id)
+        .execute()
+    )
+    records: list[dict[str, Any]] = list(projects_resp.data or [])
+
+    # Empty portfolio is a valid state (freshly created, not yet ingested).
+    # Clear the derived tables so a stale prior run doesn't linger.
+    if not records:
+        try:
+            client.table("risk_scores").delete().eq("portfolio_id", portfolio_id).execute()
+            client.table("project_segments").delete().eq(
+                "portfolio_id", portfolio_id
+            ).execute()
+            client.table("heuristic_rules").delete().eq(
+                "portfolio_id", portfolio_id
+            ).execute()
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "analyze.cleanup_failed portfolio_id=%s (empty portfolio)",
+                portfolio_id,
+            )
+        return AnalyzeResponse(portfolio_id=portfolio_id, n_projects=0, n_rules=0)
+
+    df = _records_to_analyze_frame(records)
+
+    # ---- 2. Compute segments → risk → rules ----
+    try:
+        segments_df = compute_segments_df(df)
+        score_rows = compute_scores(df)
+        rule_rows = compute_rules(df, segments_df)
+    except Exception:  # noqa: BLE001 — surface as 500 so client can retry
+        logger.exception("analyze.compute_failed portfolio_id=%s", portfolio_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "risk analysis failed"},
+        )
+
+    # ---- 3. Build insert records ----
+    segment_records: list[dict[str, Any]] = []
+    for _, row in segments_df.iterrows():
+        segment_records.append(
+            {
+                "project_id": _jsonable(row["project_id"]),
+                "portfolio_id": portfolio_id,
+                "size_bucket": str(row["size_bucket"]),
+                "normalized_delay": _jsonable(row["normalized_delay"]),
+                "cluster_id": _jsonable(row["cluster_id"]),
+            }
+        )
+
+    score_records: list[dict[str, Any]] = [
+        {
+            "project_id": _jsonable(row["project_id"]),
+            "portfolio_id": portfolio_id,
+            "score": int(row["score"]),
+            "breakdown": row["breakdown"],
+        }
+        for row in score_rows
+    ]
+
+    rule_records: list[dict[str, Any]] = [
+        {"portfolio_id": portfolio_id, **rule} for rule in rule_rows
+    ]
+
+    # ---- 4. Idempotent replace: delete then insert ----
+    # WHY delete-before-insert rather than ON CONFLICT: `heuristic_rules`
+    # has no unique key (scope+outcome could theoretically repeat if the
+    # rule set expands), and delete+insert keeps all three tables on the
+    # same refresh semantics. Best-effort consistency — if the delete
+    # succeeds and the insert fails, the portfolio ends up with zero
+    # derived rows until the next /analyze call.
+    try:
+        client.table("risk_scores").delete().eq("portfolio_id", portfolio_id).execute()
+        client.table("project_segments").delete().eq(
+            "portfolio_id", portfolio_id
+        ).execute()
+        client.table("heuristic_rules").delete().eq(
+            "portfolio_id", portfolio_id
+        ).execute()
+        if segment_records:
+            client.table("project_segments").insert(segment_records).execute()
+        if score_records:
+            client.table("risk_scores").insert(score_records).execute()
+        if rule_records:
+            client.table("heuristic_rules").insert(rule_records).execute()
+    except Exception:  # noqa: BLE001
+        logger.exception("analyze.write_failed portfolio_id=%s", portfolio_id)
+        raise
+
+    logger.info(
+        "analyze.done portfolio_id=%s n_projects=%d n_rules=%d",
+        portfolio_id,
+        len(score_records),
+        len(rule_records),
+    )
+
+    return AnalyzeResponse(
+        portfolio_id=portfolio_id,
+        n_projects=len(score_records),
+        n_rules=len(rule_records),
+    )
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+def analyze(
+    req: AnalyzeRequest,
+    _: Annotated[None, Depends(require_internal_token)],
+) -> AnalyzeResponse:
+    """Recompute segments → risk → driver rules for one portfolio.
+
+    Idempotent: re-running on the same portfolio replaces the previous
+    rows in `project_segments`, `risk_scores`, and `heuristic_rules`.
+    """
+    client = get_supabase()
+    return _analyze_portfolio(client, req.portfolio_id)
+
+
+# ---------------------------------------------------------------------------
+# /simulate — cohort-based scenario simulator (Phase 8b)
+# ---------------------------------------------------------------------------
+
+# WHY: /simulate is a pure read path — no writes, no derived-table
+# refresh. It finds the K nearest real projects (by cosine distance in
+# the same feature space /analyze's KMeans uses) and returns their
+# outcome distributions as P25/P50/P75 ranges plus Wilson CIs. The UI
+# presents these explicitly as "ranges over similar projects", NOT as
+# predictions — see scenarios.py module docstring for the design stance.
+
+
+@app.post("/simulate", response_model=SimulateResponse)
+def simulate_endpoint(
+    req: SimulateRequest,
+    _: Annotated[None, Depends(require_internal_token)],
+) -> SimulateResponse:
+    """Run the cohort simulator for a hypothetical project.
+
+    Flow:
+      1. Bearer auth (dependency).
+      2. Load the portfolio's projects.
+      3. If empty → return a valid empty-cohort response with caveats.
+      4. Otherwise call scenarios.simulate and wrap the dict into the
+         Pydantic response model.
+    """
+    client = get_supabase()
+    portfolio_id = req.portfolio_id
+
+    logger.info(
+        "simulate.start portfolio_id=%s type=%s region=%s k=%d",
+        portfolio_id,
+        req.project_type,
+        req.region,
+        req.k,
+    )
+
+    # ---- 1. Portfolio must exist ----
+    portfolio_row = (
+        client.table("portfolios").select("id").eq("id", portfolio_id).limit(1).execute()
+    )
+    if not portfolio_row.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "portfolio not found", "portfolio_id": portfolio_id},
+        )
+
+    # ---- 2. Load projects (reuse the analyze column set + frame builder) ----
+    projects_resp = (
+        client.table("projects")
+        .select(",".join(_ANALYZE_FETCH_COLUMNS))
+        .eq("portfolio_id", portfolio_id)
+        .execute()
+    )
+    records: list[dict[str, Any]] = list(projects_resp.data or [])
+
+    query: dict[str, Any] = {
+        "project_type": req.project_type,
+        "region": req.region,
+        "contract_value_usd": float(req.contract_value_usd),
+        "subcontractor_count": int(req.subcontractor_count),
+    }
+
+    # ---- 3. Empty portfolio → valid empty-cohort response ----
+    # WHY: we still return 200 rather than 404 because "no cohort" is a
+    # legitimate state for a freshly-created portfolio — the UI will
+    # render the "upload a CSV first" caveat instead of an error toast.
+    if not records:
+        empty_outcome_range = SimulateOutcomeRange(
+            p25=None, p50=None, p75=None, n=0, confidence="low"
+        )
+        return SimulateResponse(
+            portfolio_id=portfolio_id,
+            cohort_size=0,
+            k_requested=req.k,
+            similar_project_ids=[],
+            outcomes=SimulateOutcomes(
+                delay_days=empty_outcome_range,
+                cost_overrun_pct=empty_outcome_range,
+                safety_incidents=empty_outcome_range,
+                any_dispute=SimulateOutcomeRate(
+                    rate=None, ci_low=0.0, ci_high=0.0, n=0, confidence="low"
+                ),
+            ),
+            caveats=[
+                "No similar projects in this portfolio — no cohort to draw from.",
+            ],
+        )
+
+    df = _records_to_analyze_frame(records)
+
+    # ---- 4. Run the simulator ----
+    try:
+        payload = run_simulation(df, query, k=req.k)
+    except Exception:  # noqa: BLE001 — any compute failure surfaces as 500
+        logger.exception("simulate.compute_failed portfolio_id=%s", portfolio_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "scenario simulation failed"},
+        )
+
+    # ---- 5. Wrap into typed response ----
+    outcomes_raw = payload["outcomes"]
+    response = SimulateResponse(
+        portfolio_id=portfolio_id,
+        cohort_size=int(payload["cohort_size"]),
+        k_requested=int(payload["k_requested"]),
+        similar_project_ids=list(payload["similar_project_ids"]),
+        outcomes=SimulateOutcomes(
+            delay_days=SimulateOutcomeRange(**outcomes_raw["delay_days"]),
+            cost_overrun_pct=SimulateOutcomeRange(**outcomes_raw["cost_overrun_pct"]),
+            safety_incidents=SimulateOutcomeRange(**outcomes_raw["safety_incidents"]),
+            any_dispute=SimulateOutcomeRate(**outcomes_raw["any_dispute"]),
+        ),
+        caveats=list(payload["caveats"]),
+    )
+
+    logger.info(
+        "simulate.done portfolio_id=%s cohort_size=%d",
+        portfolio_id,
+        response.cohort_size,
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# /projects/upsert + /projects/delete — feedback loop (Phase 8c)
+# ---------------------------------------------------------------------------
+
+# WHY: 8c introduces UI-driven add/edit/delete for projects. Every write
+# is followed by an in-process analyze() call so risk_scores,
+# project_segments, and heuristic_rules reflect reality before the UI
+# re-renders. No pg_net trigger — the prior OOM incident on `documents`
+# is recent, and analyze() is cheap at demo scale (15–150 rows).
+
+
+# Columns that are explicitly allowed to come in as "user-editable" on
+# a manual upsert. Kept in sync with the `projects` schema in
+# ARCHITECTURE.md § Database Schema — `id`, `portfolio_id`, `source`,
+# and `created_at` are server-owned and never accepted from the client.
+_UPSERT_INPUT_COLUMNS: tuple[str, ...] = (
+    "project_id_external",
+    "project_name",
+    "project_type",
+    "contract_value_usd",
+    "start_date",
+    "end_date",
+    "region",
+    "subcontractor_count",
+    "delay_days",
+    "cost_overrun_pct",
+    "safety_incidents",
+    "payment_disputes",
+    "final_status",
+    "actual_duration_days",
+    "anomaly_flags",
+)
+
+
+class ProjectUpsertInput(BaseModel):
+    # WHY: every numeric / text field is Optional because partial updates
+    # and manual entry with missing fields are explicit use cases. The
+    # one required field is `project_id_external` — it's the dedupe key
+    # when no `id` is supplied.
+    id: str | None = None
+    project_id_external: str
+    project_name: str | None = None
+    project_type: str | None = None
+    contract_value_usd: float | None = Field(default=None, ge=0)
+    start_date: str | None = None
+    end_date: str | None = None
+    region: str | None = None
+    subcontractor_count: int | None = Field(default=None, ge=0)
+    delay_days: float | None = None
+    cost_overrun_pct: float | None = None
+    safety_incidents: int | None = Field(default=None, ge=0)
+    payment_disputes: int | None = Field(default=None, ge=0)
+    final_status: Literal["Completed", "In Progress"] | None = None
+    actual_duration_days: int | None = Field(default=None, ge=0)
+    anomaly_flags: list[str] = Field(default_factory=list)
+
+    # WHY: FastAPI would otherwise accept any string and the DB cast to
+    # `date` would throw a generic 500. Validating here gives a 422 with
+    # a clear message pointing at the offending field.
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _validate_iso_date(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        try:
+            _dt.date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError(f"must be ISO yyyy-mm-dd, got {v!r}") from exc
+        return v
+
+
+class ProjectUpsertRequest(BaseModel):
+    portfolio_id: str
+    project: ProjectUpsertInput
+
+
+class ProjectUpsertResponse(BaseModel):
+    project: dict
+    analyze: AnalyzeResponse
+
+
+class ProjectDeleteRequest(BaseModel):
+    portfolio_id: str
+    project_id: str  # projects.id UUID
+
+
+class ProjectDeleteResponse(BaseModel):
+    deleted_id: str
+    analyze: AnalyzeResponse
+
+
+def _compute_actual_duration_days(
+    start_date: str | None, end_date: str | None
+) -> int | None:
+    """Mirror cleaning.coerce_types' derivation of actual_duration_days.
+
+    WHY: on manual entry we don't run the full clean() pipeline; we
+    reproduce the one derived field it computes so manual rows have
+    parity with CSV-ingested rows in the risk/drivers modules. Returns
+    None when either date is missing or unparseable — same semantic as
+    the Int64 <NA> cleaning.py emits for in-progress projects.
+    """
+    if not start_date or not end_date:
+        return None
+    try:
+        start = _dt.date.fromisoformat(start_date)
+        end = _dt.date.fromisoformat(end_date)
+    except ValueError:
+        return None
+    return (end - start).days
+
+
+def _project_input_to_row(
+    portfolio_id: str,
+    project: ProjectUpsertInput,
+    *,
+    source: str,
+) -> dict[str, Any]:
+    """Build the dict we'll hand to Supabase INSERT / UPDATE.
+
+    Caller sets `source`:
+      - 'manual' on INSERT
+      - the preserved existing value on UPDATE
+
+    `id` is intentionally excluded — INSERTs let Postgres generate one;
+    UPDATEs use `.eq("id", ...)` to target the row.
+    """
+    row: dict[str, Any] = {"portfolio_id": portfolio_id, "source": source}
+    for col in _UPSERT_INPUT_COLUMNS:
+        row[col] = getattr(project, col)
+
+    # WHY: even if the caller sent an explicit actual_duration_days,
+    # recompute from the supplied dates so the derived field can't drift
+    # from its inputs. If dates are absent and the caller sent a manual
+    # value, keep theirs — it's the only signal we have.
+    computed = _compute_actual_duration_days(project.start_date, project.end_date)
+    if computed is not None:
+        row["actual_duration_days"] = computed
+    return row
+
+
+@app.post("/projects/upsert", response_model=ProjectUpsertResponse)
+def projects_upsert(
+    req: ProjectUpsertRequest,
+    _: Annotated[None, Depends(require_internal_token)],
+) -> ProjectUpsertResponse:
+    """Insert or update a single project row, then recompute analytics.
+
+    Resolution order:
+      1. If `project.id` is provided → UPDATE by id.
+      2. Else look up `(portfolio_id, project_id_external)` → UPDATE if found.
+      3. Else INSERT a new row with `source='manual'`.
+
+    On UPDATE the existing `source` is preserved so CSV-ingested rows
+    edited from the UI stay tagged 'csv'.
+    """
+    client = get_supabase()
+    portfolio_id = req.portfolio_id
+    project = req.project
+
+    logger.info(
+        "projects_upsert.start portfolio_id=%s project_id_external=%s id=%s",
+        portfolio_id,
+        project.project_id_external,
+        project.id,
+    )
+
+    # ---- 1. Portfolio must exist ----
+    portfolio_row = (
+        client.table("portfolios").select("id").eq("id", portfolio_id).limit(1).execute()
+    )
+    if not portfolio_row.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "portfolio not found", "portfolio_id": portfolio_id},
+        )
+
+    # ---- 2. Resolve target row ----
+    existing: dict[str, Any] | None = None
+    if project.id:
+        lookup = (
+            client.table("projects")
+            .select("id, source, portfolio_id")
+            .eq("id", project.id)
+            .limit(1)
+            .execute()
+        )
+        if not lookup.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": "project not found", "project_id": project.id},
+            )
+        existing = lookup.data[0]
+        # WHY: guard against cross-portfolio update — id is unique but
+        # the caller might have mis-wired the portfolio_id.
+        if existing["portfolio_id"] != portfolio_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "project belongs to a different portfolio",
+                    "project_id": project.id,
+                },
+            )
+    else:
+        lookup = (
+            client.table("projects")
+            .select("id, source")
+            .eq("portfolio_id", portfolio_id)
+            .eq("project_id_external", project.project_id_external)
+            .limit(1)
+            .execute()
+        )
+        if lookup.data:
+            existing = lookup.data[0]
+
+    # ---- 3. Write ----
+    # WHY: on UPDATE we preserve existing `source` so CSV-origin rows
+    # stay 'csv' even after edits. Only fresh INSERTs get 'manual'.
+    if existing is not None:
+        target_source = existing.get("source") or "csv"
+        row = _project_input_to_row(portfolio_id, project, source=target_source)
+        try:
+            resp = (
+                client.table("projects")
+                .update(row)
+                .eq("id", existing["id"])
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "projects_upsert.update_failed portfolio_id=%s id=%s",
+                portfolio_id,
+                existing["id"],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"error": "project update failed"},
+            ) from exc
+        stored = (resp.data or [None])[0]
+        if stored is None:
+            # Some supabase-py versions return [] from update; re-select.
+            readback = (
+                client.table("projects")
+                .select("*")
+                .eq("id", existing["id"])
+                .limit(1)
+                .execute()
+            )
+            stored = (readback.data or [None])[0]
+        stored_id = existing["id"]
+    else:
+        row = _project_input_to_row(portfolio_id, project, source="manual")
+        try:
+            resp = client.table("projects").insert(row).execute()
+        except Exception as exc:  # noqa: BLE001
+            # WHY: the only expected failure class here is a unique-constraint
+            # violation on (portfolio_id, project_id_external). We surface that
+            # as 409 so the UI can tell the user without a stack trace.
+            logger.warning(
+                "projects_upsert.insert_failed portfolio_id=%s ext=%s err=%s",
+                portfolio_id,
+                project.project_id_external,
+                exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "could not insert project (duplicate or DB error)",
+                    "project_id_external": project.project_id_external,
+                    "details": str(exc),
+                },
+            ) from exc
+        stored = (resp.data or [None])[0]
+        stored_id = stored["id"] if stored and "id" in stored else None
+
+    # ---- 4. Refresh analytics ----
+    # WHY: the contract requires analyze to be present in the response,
+    # so a compute failure after the successful write is a 500 — but we
+    # include stored_id in the body so the UI can refresh-and-recover
+    # and show the user the row they just created.
+    try:
+        analyze_result = _analyze_portfolio(client, portfolio_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "projects_upsert.analyze_failed portfolio_id=%s id=%s",
+            portfolio_id,
+            stored_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "analyze failed after project write",
+                "project_id": stored_id,
+                "details": str(exc),
+            },
+        ) from exc
+
+    logger.info(
+        "projects_upsert.done portfolio_id=%s id=%s inserted=%s",
+        portfolio_id,
+        stored_id,
+        existing is None,
+    )
+
+    return ProjectUpsertResponse(project=dict(stored or {}), analyze=analyze_result)
+
+
+@app.post("/projects/delete", response_model=ProjectDeleteResponse)
+def projects_delete(
+    req: ProjectDeleteRequest,
+    _: Annotated[None, Depends(require_internal_token)],
+) -> ProjectDeleteResponse:
+    """Delete a single project, then recompute analytics.
+
+    FK cascades wipe risk_scores + project_segments for the row;
+    heuristic_rules are regenerated portfolio-wide by analyze().
+    """
+    client = get_supabase()
+    portfolio_id = req.portfolio_id
+    project_id = req.project_id
+
+    logger.info(
+        "projects_delete.start portfolio_id=%s project_id=%s",
+        portfolio_id,
+        project_id,
+    )
+
+    # ---- 1. Verify ownership ----
+    lookup = (
+        client.table("projects")
+        .select("id, portfolio_id")
+        .eq("id", project_id)
+        .limit(1)
+        .execute()
+    )
+    if not lookup.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "project not found", "project_id": project_id},
+        )
+    if lookup.data[0]["portfolio_id"] != portfolio_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "project belongs to a different portfolio",
+                "project_id": project_id,
+            },
+        )
+
+    # ---- 2. Delete (AND both conditions — defense in depth) ----
+    try:
+        (
+            client.table("projects")
+            .delete()
+            .eq("id", project_id)
+            .eq("portfolio_id", portfolio_id)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "projects_delete.failed portfolio_id=%s project_id=%s",
+            portfolio_id,
+            project_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "project delete failed"},
+        ) from exc
+
+    # ---- 3. Refresh analytics ----
+    try:
+        analyze_result = _analyze_portfolio(client, portfolio_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "projects_delete.analyze_failed portfolio_id=%s project_id=%s",
+            portfolio_id,
+            project_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "analyze failed after project delete",
+                "project_id": project_id,
+                "details": str(exc),
+            },
+        ) from exc
+
+    logger.info(
+        "projects_delete.done portfolio_id=%s project_id=%s",
+        portfolio_id,
+        project_id,
+    )
+
+    return ProjectDeleteResponse(deleted_id=project_id, analyze=analyze_result)

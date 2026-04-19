@@ -90,12 +90,21 @@ const columns: Column<ProjectRow>[] = [
   {
     key: "project_name",
     header: "Name",
-    width: "220px",
+    width: "240px",
     sortable: true,
     cell: (row) => (
-      <span className="font-medium text-foreground">
-        {row.project_name ?? "—"}
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className="truncate font-medium text-foreground">
+          {row.project_name ?? "—"}
+        </span>
+        {row.source === "manual" ? (
+          // WHY: provenance badge — inline with the name so it's visible
+          // wherever the table renders, without claiming its own column.
+          <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+            Manual
+          </Badge>
+        ) : null}
+      </div>
     ),
   },
   {
@@ -242,8 +251,10 @@ const columns: Column<ProjectRow>[] = [
 
 export function ProjectsTable({
   rows,
+  onRowClick,
 }: {
   rows: ProjectRow[];
+  onRowClick?: (row: ProjectRow) => void;
 }): ReactElement {
   if (rows.length === 0) {
     return (
@@ -265,6 +276,7 @@ export function ProjectsTable({
         `${row.project_name ?? ""} ${row.project_id_external ?? ""}`
       }
       rowKey={(row) => row.id}
+      onRowClick={onRowClick}
     />
   );
 }

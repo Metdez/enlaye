@@ -38,6 +38,12 @@ type DataTableProps<T> = {
   emptyState?: ReactNode;
   className?: string;
   rowKey?: (row: T, index: number) => string;
+  /**
+   * Optional row-click handler. When present, each <tr> gains role="button",
+   * tabIndex=0, keyboard activation (Enter/Space), and a stronger hover tone.
+   * Omitting keeps the current read-only hover behavior for existing callers.
+   */
+  onRowClick?: (row: T) => void;
 };
 
 type SortState<T> = { key: keyof T & string; dir: "asc" | "desc" } | null;
@@ -63,6 +69,7 @@ export function DataTable<T>({
   emptyState,
   className,
   rowKey,
+  onRowClick,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
@@ -207,10 +214,30 @@ export function DataTable<T>({
                   </td>
                 </tr>
               ) : (
-                sorted.map((row, i) => (
+                sorted.map((row, i) => {
+                  const interactive = onRowClick !== undefined;
+                  return (
                   <tr
                     key={rowKey ? rowKey(row, i) : i}
-                    className="border-b border-border/60 transition-colors duration-150 last:border-b-0 hover:bg-muted/40"
+                    role={interactive ? "button" : undefined}
+                    tabIndex={interactive ? 0 : undefined}
+                    onClick={interactive ? () => onRowClick(row) : undefined}
+                    onKeyDown={
+                      interactive
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onRowClick(row);
+                            }
+                          }
+                        : undefined
+                    }
+                    className={cn(
+                      "border-b border-border/60 transition-colors duration-150 last:border-b-0",
+                      interactive
+                        ? "cursor-pointer hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+                        : "hover:bg-muted/40",
+                    )}
                   >
                     {columns.map((col) => {
                       const alignRight = col.align === "right";
@@ -236,7 +263,8 @@ export function DataTable<T>({
                       );
                     })}
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>

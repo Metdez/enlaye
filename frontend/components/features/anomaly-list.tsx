@@ -12,6 +12,7 @@ import {
   AnomalyBadge,
   type AnomalyCategory,
 } from "@/components/data/anomaly-badge";
+import { RiskDial } from "@/components/data/risk-dial";
 import { TabularNumber } from "@/components/data/tabular-number";
 import { EmptyState } from "@/components/state/empty-state";
 import {
@@ -20,6 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+// NOTE: CardHeader/CardTitle are still used by the "by category" tab below.
 import {
   Tabs,
   TabsContent,
@@ -87,7 +89,10 @@ type FlaggedEntry = {
   flags: { raw: string; meta: FlagMeta }[];
 };
 
-function collectFlagged(projects: ProjectRow[]): FlaggedEntry[] {
+function collectFlagged(
+  projects: ProjectRow[],
+  scoreByProjectId?: Map<string, number>,
+): FlaggedEntry[] {
   const out: FlaggedEntry[] = [];
   for (const p of projects) {
     const resolved = (p.anomaly_flags ?? [])
@@ -98,8 +103,21 @@ function collectFlagged(projects: ProjectRow[]): FlaggedEntry[] {
       .filter((x): x is { raw: string; meta: FlagMeta } => x !== null);
     if (resolved.length > 0) out.push({ project: p, flags: resolved });
   }
-  // Worst-offenders first; stable on original order.
-  out.sort((a, b) => b.flags.length - a.flags.length);
+  // WHY: when scores are available, sort by risk desc so the page leads with
+  // the hottest projects. Fall back to flag-count ordering (the legacy
+  // behavior) so this file still works without a score map.
+  if (scoreByProjectId && scoreByProjectId.size > 0) {
+    out.sort((a, b) => {
+      const sa = scoreByProjectId.get(a.project.id);
+      const sb = scoreByProjectId.get(b.project.id);
+      if (sa == null && sb == null) return b.flags.length - a.flags.length;
+      if (sa == null) return 1;
+      if (sb == null) return -1;
+      return sb - sa;
+    });
+  } else {
+    out.sort((a, b) => b.flags.length - a.flags.length);
+  }
   return out;
 }
 
@@ -121,10 +139,17 @@ function projectSubheader(row: ProjectRow): string | null {
 
 export function AnomalyList({
   projects,
+  scoreByProjectId,
 }: {
   projects: ProjectRow[];
+  // WHY: optional so existing callers don't break; when present each row
+  // prepends a small RiskDial to anchor the anomaly in its risk context.
+  scoreByProjectId?: Map<string, number>;
 }): ReactElement {
-  const flagged = useMemo(() => collectFlagged(projects), [projects]);
+  const flagged = useMemo(
+    () => collectFlagged(projects, scoreByProjectId),
+    [projects, scoreByProjectId],
+  );
 
   // Group by category for the alternate view. Using the resolved entries
   // means unknown flag strings were already dropped — no "misc" bucket.
@@ -170,29 +195,40 @@ export function AnomalyList({
         <ul className="space-y-3 list-none p-0" aria-label="Flagged projects">
           {flagged.map(({ project, flags }) => {
             const sub = projectSubheader(project);
+            const score = scoreByProjectId?.get(project.id);
             return (
               <li key={project.id}>
                 <Card size="sm">
-                  <CardHeader>
-                    <CardTitle className="font-mono text-body">
-                      {projectHeader(project)}
-                    </CardTitle>
-                    {sub ? (
-                      <p className="text-meta tabular-nums">{sub}</p>
-                    ) : null}
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {flags.map(({ raw, meta }) => (
-                      <div
-                        key={raw}
-                        className="flex flex-wrap items-center gap-2"
-                      >
-                        <AnomalyBadge category={meta.category} />
-                        <span className="text-meta tabular-nums">
-                          {meta.describe(project)}
-                        </span>
+                  <CardContent className="flex items-start gap-3">
+                    {/* WHY: left-side dial anchors each anomaly to its risk
+                        band so a reader scanning the column gets a color
+                        read before reading the flag copy. */}
+                    {score != null ? (
+                      <div className="shrink-0 pt-0.5">
+                        <RiskDial score={score} size="sm" />
                       </div>
-                    ))}
+                    ) : null}
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div>
+                        <p className="font-mono text-body text-foreground">
+                          {projectHeader(project)}
+                        </p>
+                        {sub ? (
+                          <p className="text-meta tabular-nums">{sub}</p>
+                        ) : null}
+                      </div>
+                      {flags.map(({ raw, meta }) => (
+                        <div
+                          key={raw}
+                          className="flex flex-wrap items-center gap-2"
+                        >
+                          <AnomalyBadge category={meta.category} />
+                          <span className="text-meta tabular-nums">
+                            {meta.describe(project)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
               </li>

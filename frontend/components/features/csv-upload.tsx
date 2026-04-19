@@ -20,7 +20,14 @@ import { cn } from "@/lib/utils";
 // client-side too gives fast feedback without a round-trip.
 const MAX_BYTES = 10 * 1024 * 1024;
 
-type Stage = "idle" | "creating" | "uploading" | "ingesting" | "error";
+type Stage =
+  | "idle"
+  | "creating"
+  | "uploading"
+  | "ingesting"
+  | "analyzing"
+  | "indexing"
+  | "error";
 
 // WHY: the Python service raises HTTPException(detail=...); FastAPI serializes
 // as `{ "detail": ... }` which our /api/ml proxy passes through unchanged.
@@ -61,6 +68,8 @@ const STAGE_LABELS: Record<Exclude<Stage, "idle" | "error">, string> = {
   creating: "Creating portfolio…",
   uploading: "Uploading CSV…",
   ingesting: "Cleaning & ingesting…",
+  analyzing: "Analyzing risk…",
+  indexing: "Indexing for chat…",
 };
 
 export function CsvUpload() {
@@ -140,6 +149,77 @@ export function CsvUpload() {
           throw new Error(`Ingest failed: ${detail}`);
         }
 
+        // 4. Kick off risk analysis so scores are populated before the user
+        // lands on the Overview. We await (not fire-and-forget) so the top-5
+        // risk module renders populated. If analyze fails, we log and proceed
+        // — ingest already succeeded and the user can retry from the page.
+        setStage("analyzing");
+        try {
+          const analyzeRes = await fetch("/api/ml/analyze", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ portfolio_id: portfolioId }),
+          });
+          if (!analyzeRes.ok) {
+            // WHY: don't throw — ingest succeeded. Log so we notice in dev and
+            // let the empty-state "Compute risk scores" CTA recover the UX.
+            console.warn(
+              `Risk analyze returned ${analyzeRes.status}; scores may be missing on landing.`,
+            );
+          }
+        } catch (analyzeErr) {
+          console.warn("Risk analyze request failed:", analyzeErr);
+        }
+
+        // 5. Index the CSV itself so the Ask chat can answer questions about
+        // the rows the user just uploaded — no separate doc upload required.
+        // WHY: we copy the same bytes into `documents-bucket` with a `.txt`
+        // extension so the existing `embed` Edge Function treats it as plain
+        // text (its CSV path is identical to its TXT path — UTF-8 decode +
+        // chunk). Non-fatal: if indexing fails we still open the portfolio.
+        setStage("indexing");
+        try {
+          const docFilename = `${file.name}.txt`;
+          const docStoragePath = `portfolios/${portfolioId}/docs/${Date.now()}-${docFilename}`;
+          const { error: docUploadErr } = await supabase.storage
+            .from("documents-bucket")
+            .upload(docStoragePath, file, {
+              contentType: "text/plain",
+              upsert: false,
+            });
+          if (docUploadErr) {
+            throw new Error(`Storage upload failed: ${docUploadErr.message}`);
+          }
+          const { data: docRow, error: docInsertErr } = await supabase
+            .from("documents")
+            .insert({
+              portfolio_id: portfolioId,
+              filename: docFilename,
+              storage_path: docStoragePath,
+              embedding_status: "pending",
+            })
+            .select()
+            .single();
+          if (docInsertErr || !docRow) {
+            throw new Error(
+              `Failed to register CSV document: ${docInsertErr?.message ?? "no row returned"}`,
+            );
+          }
+          // WHY: await the embed invoke so chat is ready on arrival. If we
+          // fire-and-forget, users hit /ask before `embedding_status` flips
+          // to `complete` and see the "chat unavailable" empty state. A few
+          // extra seconds here is preferable to a broken landing experience.
+          const { error: invokeErr } = await supabase.functions.invoke(
+            "embed",
+            { body: { record: docRow } },
+          );
+          if (invokeErr) {
+            throw new Error(`embed invoke failed: ${invokeErr.message}`);
+          }
+        } catch (indexErr) {
+          console.warn("CSV chat-indexing failed:", indexErr);
+        }
+
         toastSuccess("Portfolio uploaded", {
           description: "Opening portfolio…",
         });
@@ -174,7 +254,11 @@ export function CsvUpload() {
   );
 
   const busy =
-    stage === "creating" || stage === "uploading" || stage === "ingesting";
+    stage === "creating" ||
+    stage === "uploading" ||
+    stage === "ingesting" ||
+    stage === "analyzing" ||
+    stage === "indexing";
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,

@@ -13,6 +13,7 @@ import {
   BarChart3,
   GitBranch,
   MessageSquare,
+  Radar,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { RecentPortfolios } from "@/components/features/recent-portfolios";
 import { ArchitectureDiagram } from "@/components/marketing/architecture-diagram";
 import { KnownLimits } from "@/components/marketing/known-limits";
 import { ProductPillars } from "@/components/marketing/product-pillars";
+import { ScreenShowcase } from "@/components/marketing/screen-showcase";
 import { TechStackGrid } from "@/components/marketing/tech-stack-grid";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -61,6 +63,11 @@ const STEPS: HowItWorksStep[] = [
     body: "Median imputation, type coercion, and threshold-based anomaly flags — documented per run.",
   },
   {
+    icon: Radar,
+    title: "Screen new bids",
+    body: "Type contract value, region, and scope. The dashboard pulls a k-nearest cohort and returns P25/P50/P75 ranges.",
+  },
+  {
     icon: BarChart3,
     title: "Train & ask",
     body: "Two dispute-risk models compare side-by-side. Ask questions over uploaded project documents.",
@@ -82,9 +89,28 @@ export default async function Home(): Promise<ReactElement> {
         </h1>
         <p className="text-body mx-auto max-w-xl text-muted-foreground">
           Upload a portfolio CSV. Enlaye Demo cleans the data, flags anomalies,
-          compares two dispute-risk models, and answers questions over your
-          project documents.
+          screens hypothetical bids against your cohort, compares two
+          dispute-risk models, and answers questions over your project
+          documents.
         </p>
+        <a
+          href="#screen"
+          className="group mt-1 inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/5 px-3 py-1 text-[12px] font-medium text-primary transition-colors hover:bg-primary/10"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <span className="relative flex size-1.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+            </span>
+            New
+          </span>
+          <span className="h-3 w-px bg-primary/20" aria-hidden />
+          <span>Pre-construction intake — screen a bid in seconds</span>
+          <ArrowRight
+            className="size-3 transition-transform group-hover:translate-x-0.5"
+            aria-hidden
+          />
+        </a>
         <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
           <a
             href="#upload"
@@ -104,6 +130,25 @@ export default async function Home(): Promise<ReactElement> {
           Originally scoped as a 120-minute internship assessment, now built out
           as the product that brief was pointing at.
         </p>
+      </section>
+
+      {/* Demo video — silent, looping product walkthrough sits directly
+          under the hero so visitors see the UI in motion before scrolling.
+          WHY muted+playsInline+autoPlay: required for mobile/Safari autoplay;
+          loop keeps it ambient without requiring user controls. */}
+      <section aria-label="Product demo" className="pb-20">
+        <div className="relative overflow-hidden rounded-xl border border-border bg-muted/30 shadow-sm">
+          <video
+            src="/demo-hero.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            aria-hidden
+            className="block h-auto w-full"
+          />
+        </div>
       </section>
 
       {/* Upload */}
@@ -160,6 +205,14 @@ export default async function Home(): Promise<ReactElement> {
           })}
         </ol>
       </section>
+
+      {/* Screen (Pre-construction intake) — hero feature showcase.
+          WHY placed above ProductPillars: it's the new, most differentiated
+          capability; visitors coming from the email teaser or the "New"
+          badge land here without scrolling past the secondary pillars. */}
+      <div id="screen" className="scroll-mt-12">
+        <ScreenShowcase />
+      </div>
 
       {/* Product pillars (what it does, with inline UI mockups) */}
       <div id="pillars" className="scroll-mt-12">
