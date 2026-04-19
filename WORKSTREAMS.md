@@ -291,6 +291,18 @@ Every Claude Code session appends an entry here before handing control back. Kee
 - **Notes:**
   - Five-way parallel held up again — disjoint file ownership meant zero merge conflicts. The two integration flags the RAG agent surfaced (lazy-loading, `hasIndexedDocuments` gate) were both small and resolved by the controller without re-dispatching.
 
+### 2026-04-19 — Session 8 — Phase 8 risk intelligence suite (docs backfill)
+- **Did:**
+  - Confirmed that the Screen / Insights / Monitor routes, Projects CRUD, and the `risk_scores` / `heuristic_rules` / `project_segments` tables shipped in commit `26336ad` had no entries in ARCHITECTURE.md, IMPLEMENTATION.md, or this file. Backfilled all three.
+  - **ARCHITECTURE.md**: added the three risk-intelligence tables + `projects.source` column to the schema block; added API contracts for `/analyze`, `/simulate` (full request/response shape, including the empty-portfolio 200 semantics), and `/projects/upsert` + `/projects/delete`; documented the new portfolio routes (`/screen`, `/insights`, `/monitor`, `/projects`) under the Frontend service boundary; added a Phase 8 + landing-video changelog entry.
+  - **IMPLEMENTATION.md**: added Phase 8 with three sub-phases (8a risk scoring + rules + segments, 8b Screen new bids, 8c Projects CRUD + watchlist) with task boxes reflecting what's actually in the tree, plus ML test coverage.
+  - Fix: [upload retry] wrapped `supabase.functions.invoke("embed", ...)` in 3× exponential-backoff retry across `document-upload.tsx` and `document-list.tsx` to absorb cold-start HTTP 546 `WORKER_RESOURCE_LIMIT` from `Supabase.ai.Session` (reproduced directly via curl — first call 546, second 200).
+  - Landing: added a looping `<video>` under the hero pointing at `/demo-hero.mp4` (autoplay + muted + playsInline + loop).
+- **Changed:** `ARCHITECTURE.md`, `IMPLEMENTATION.md`, this file, `frontend/app/page.tsx`, `frontend/components/features/document-upload.tsx`, `frontend/components/features/document-list.tsx`, `frontend/public/demo-hero.mp4` (NEW).
+- **Next:** None blocking. Optional follow-ups: screenshot the Screen page for the README, add a `/projects/upsert` example to ARCHITECTURE.md's API contracts (currently summarized, not typed), and re-run `codex:rescue` against Phase 8 before a portfolio-wide review.
+- **Notes:**
+  - Doc drift had accumulated over the risk-intel build — reinforces CLAUDE.md's update protocol that every structural change needs the paired doc edit in the same session, not after the fact.
+
 <!-- New sessions append above this line, below the Session 0 entry -->
 
 ---

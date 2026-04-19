@@ -234,6 +234,36 @@ Goal: the app feels complete and deployed; the submission package is ready.
 
 ---
 
+## Phase 8: Risk Intelligence (post-submission build-out)
+
+Goal: elevate the dashboard from "clean + two models" to a product a risk analyst could actually use — derived risk scores, salience-ranked rules, a pre-construction intake simulator, manual project entry, and a watchlist.
+
+### 8a — Risk scoring + heuristic rules + segments
+- [x] Migration `20260419070156_risk_intelligence_tables.sql`: `risk_scores`, `heuristic_rules`, `project_segments` (all FK-cascaded, all idempotent-rebuildable).
+- [x] ML: `segments.py` (KMeans cluster + size bucket + normalized delay), `risk.py` (0-100 composite + jsonb breakdown), `drivers.py` (Wilson-CI rules with salience index).
+- [x] `/analyze` endpoint rebuilds all three tables per portfolio (DELETE + INSERT).
+- [x] Frontend Overview: `portfolio-risk-panel.tsx`, `portfolio-signals.tsx`, `mix-breakdowns-collapsible.tsx`, `risk-dial.tsx`, `rule-card.tsx`, `distribution-strip.tsx`.
+- [x] New route `portfolios/[id]/insights/` — salience-ranked `heuristic_rules` feed via `insight-card.tsx`.
+
+### 8b — Screen new bids (pre-construction intake)
+- [x] ML: `scenarios.py` — K-nearest cohort (cosine distance in `/analyze` feature space), P25/P50/P75 ranges + Wilson CIs for delay / overrun / safety / any-dispute.
+- [x] `/simulate` endpoint — pure read, empty portfolio returns 200 + `cohort_size=0` + caveat (not 404).
+- [x] New route `portfolios/[id]/screen/` — `scenario-simulator.tsx` client component with k slider, dedup'd type/region dropdowns from the cohort, fallback to demo categories when portfolio is empty.
+- [x] Landing-page showcase `components/marketing/screen-showcase.tsx` + `Screen new bids` hero link + `#screen` anchor.
+- [x] UI copy framed as "ranges over similar projects," NOT predictions.
+
+### 8c — Projects CRUD + watchlist + Monitor
+- [x] Migration `20260419073854_projects_source_column.sql`: `projects.source text check(source in ('csv','manual'))`, default `'csv'`.
+- [x] `/projects/upsert` and `/projects/delete` endpoints — fire `/analyze` afterwards so risk + rules stay fresh.
+- [x] Frontend: `projects-page-client.tsx`, `project-add-dialog.tsx`, `project-edit-sheet.tsx`, `project-form.tsx`, `projects-actions-bar.tsx`, provenance badge (CSV vs. manual).
+- [x] `watchlist-toggle.tsx` (localStorage-backed) + new `portfolios/[id]/monitor/` route — in-progress projects with per-row risk dial.
+- [x] Nav updates (`shell/nav-items.ts`) for Screen / Insights / Monitor.
+- [x] ML test coverage: `test_drivers.py`, `test_risk.py`, `test_scenarios.py`, `test_segments.py`, `test_projects_crud.py`.
+
+**Acceptance:** Uploading the demo CSV, opening `/screen`, entering a hypothetical bid, and getting a cohort + outcome ranges back in under 2s end-to-end. Adding a manual project from `/projects` updates `/insights` without a manual reload.
+
+---
+
 ## Cutting Guide (if time runs short)
 
 Cuts, in order of preference:

@@ -91,8 +91,18 @@ Understanding what runs where — and what crosses a boundary — is the core of
 **Talks to:**
 - Supabase Postgres (reads) via `@supabase/supabase-js` with anon key
 - Supabase Storage (upload/download) via SDK
-- Python ML service `/ingest` and `/train` endpoints
+- Python ML service `/ingest`, `/train`, `/analyze`, `/simulate`, `/projects/*` endpoints
 - Supabase Edge Function `query` for RAG
+
+**Portfolio routes** (under `app/portfolios/[id]/`):
+- `/` — Overview: KPIs, charts, risk panel, signals.
+- `/projects` — CRUD table (add / edit / delete rows, CSV vs. manual provenance badge).
+- `/anomalies` — flagged-rule list.
+- `/screen` — **Pre-construction intake** (the "Screen new bids" feature). Form inputs (`project_type`, `region`, `contract_value_usd`, `subcontractor_count`) POST to `/api/ml/simulate`; UI renders the returned P25/P50/P75 ranges for delay/overrun/safety and a Wilson-CI rate for any-dispute, next to a "Similar projects" list rendered from `similar_project_ids`.
+- `/insights` — salience-ranked `heuristic_rules` feed.
+- `/monitor` — live watchlist of in-progress projects with `risk_scores`.
+- `/models` — two-model comparison (the showcase).
+- `/documents` + `/ask` — RAG upload + chat.
 
 **Does NOT talk directly to:** OpenRouter (goes through Edge Function), LLM APIs of any kind.
 
@@ -288,6 +298,55 @@ create index on document_chunks using ivfflat (embedding vector_cosine_ops)
   with (lists = 100);
 
 create index on document_chunks(portfolio_id);
+
+-- ============================================================
+-- Risk intelligence tables (Phase 8a)
+-- ============================================================
+-- WHY separate tables instead of columns on `projects`: the ingest /
+-- training code stays untouched, and `/analyze` can DELETE + INSERT by
+-- portfolio for idempotent refresh without touching source-of-truth rows.
+
+create table risk_scores (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  portfolio_id uuid not null references portfolios(id) on delete cascade,
+  score numeric not null,                   -- 0-100 composite
+  breakdown jsonb not null default '{}',    -- { subscores, weights, flags }
+  computed_at timestamptz not null default now(),
+  constraint risk_score_range check (score >= 0 and score <= 100),
+  constraint risk_scores_project_unique unique (project_id)
+);
+
+create table heuristic_rules (
+  id uuid primary key default gen_random_uuid(),
+  portfolio_id uuid not null references portfolios(id) on delete cascade,
+  scope text not null,          -- 'project_type=Infrastructure', 'size_bucket=large'
+  outcome text not null,        -- 'high_overrun' | 'high_delay' | 'any_safety_incident' | 'any_dispute'
+  rate numeric not null,
+  sample_size int not null,
+  ci_low numeric not null,
+  ci_high numeric not null,
+  confidence text not null,     -- 'low' | 'medium' | 'high'
+  computed_at timestamptz not null default now()
+);
+
+create table project_segments (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references projects(id) on delete cascade,
+  portfolio_id uuid not null references portfolios(id) on delete cascade,
+  size_bucket text not null,        -- 'small' | 'medium' | 'large'
+  normalized_delay numeric,         -- delay_days / (actual_duration_days + 1)
+  cluster_id int,                   -- KMeans cluster within portfolio; null if n < k*3
+  computed_at timestamptz not null default now(),
+  constraint project_segments_project_unique unique (project_id)
+);
+
+-- ============================================================
+-- projects.source (Phase 8c) — provenance for manual vs. CSV rows
+-- ============================================================
+alter table projects
+  add column source text not null default 'csv'
+  check (source in ('csv', 'manual'));
 ```
 
 ---
@@ -362,6 +421,42 @@ Returns `200 OK` with `{ status: "ok", version: string }`. For Railway health ch
   };
 }
 ```
+
+#### `POST /analyze` (Phase 8a)
+Recomputes `project_segments` → `risk_scores` → `heuristic_rules` for one portfolio. Idempotent DELETE + INSERT per table. Request `{ portfolio_id }`, response `{ portfolio_id, n_projects, n_rules }`.
+
+#### `POST /simulate` (Phase 8b — Screen new bids)
+Cohort-based scenario simulator. Finds the K nearest *real* projects by cosine distance in the same feature space KMeans uses, returns their outcome distributions as P25/P50/P75 ranges plus Wilson 95% CIs. **Pure read path, no writes.** The UI presents these as ranges over similar projects, NOT predictions.
+
+```typescript
+// Request
+{
+  portfolio_id: string;
+  project_type: string;
+  region: string;
+  contract_value_usd: number;   // ≥ 0
+  subcontractor_count: number;  // ≥ 0
+  k?: number;                   // 1..20, default 5
+}
+
+// Response (200) — empty portfolio returns 200 with cohort_size=0 + caveat, not 404
+{
+  portfolio_id: string;
+  cohort_size: number;
+  k_requested: number;
+  similar_project_ids: string[];
+  outcomes: {
+    delay_days:        { p25, p50, p75, n, confidence: 'low'|'medium'|'high' };
+    cost_overrun_pct:  { p25, p50, p75, n, confidence };
+    safety_incidents:  { p25, p50, p75, n, confidence };
+    any_dispute:       { rate, ci_low, ci_high, n, confidence };
+  };
+  caveats: string[];
+}
+```
+
+#### `POST /projects/upsert` and `POST /projects/delete` (Phase 8c)
+Create / edit / delete individual project rows from the Projects UI. Upsert sets `source='manual'` on new rows; CSV-ingested rows keep `source='csv'`. Both endpoints fire `/analyze` afterwards so risk_scores and rules stay fresh.
 
 ### Supabase Edge Function: `query`
 
@@ -439,6 +534,8 @@ Three services, one repo. All config is environment-variable driven. **All infra
 
 Every time ARCHITECTURE.md changes, add an entry here. Date, change, reason.
 
+- **2026-04-19** — Phase 8 (risk intelligence) landed in three slices. **8a — Risk scoring + heuristic rules**: new tables `risk_scores` (0-100 composite with `breakdown` jsonb), `heuristic_rules` (scope × outcome with Wilson 95% CI + salience index), `project_segments` (size bucket, normalized delay, KMeans `cluster_id`), all FK-cascaded on `projects.id` / `portfolios.id` and idempotently rebuilt by `/analyze` (DELETE + INSERT per portfolio). New ML modules `risk.py` / `drivers.py` / `segments.py`. New frontend route `portfolios/[id]/insights/` (salience-ranked rule cards) plus Overview panels `portfolio-risk-panel.tsx` / `portfolio-signals.tsx` / `mix-breakdowns-collapsible.tsx` and primitives `risk-dial.tsx` / `rule-card.tsx` / `distribution-strip.tsx` / `insight-card.tsx`. **8b — Screen new bids (pre-construction intake)**: new ML module `scenarios.py` + `/simulate` endpoint — K-nearest cohort (cosine distance, k ≤ 20, default 5) in the `/analyze` feature space, returns P25/P50/P75 ranges + Wilson CIs over delay / overrun / safety / any-dispute. Pure read path — no writes. New frontend route `portfolios/[id]/screen/` backed by `scenario-simulator.tsx` client component; landing-page showcase in `components/marketing/screen-showcase.tsx` with its own `#screen` anchor and `Screen new bids` hero link. Empty portfolios return 200 + `cohort_size=0` + caveat, never 404. **8c — Projects CRUD + watchlist**: `projects.source text check(source in ('csv','manual'))` column (migration `20260419073854_projects_source_column.sql`) with provenance badge in the Projects table; new endpoints `/projects/upsert` and `/projects/delete` trigger `/analyze` so risk + rules stay fresh. New frontend: `projects-page-client.tsx`, `project-add-dialog.tsx`, `project-edit-sheet.tsx`, `project-form.tsx`, `projects-actions-bar.tsx`, plus a localStorage-backed `watchlist-toggle.tsx` feeding the new `portfolios/[id]/monitor/` route (in-progress projects with risk dial). Nav in `shell/nav-items.ts` gained Screen / Insights / Monitor entries.
+- **2026-04-19** — Landing hero gained a looping demo video (`/demo-hero.mp4`) and the embed path added 3× exponential-backoff retry in `document-upload.tsx` / `document-list.tsx` to absorb cold-start `WORKER_RESOURCE_LIMIT` (HTTP 546) from `Supabase.ai.Session`.
 - **2026-04-18** — Phase 5 (RAG pipeline) landed via 5-way parallel agent dispatch. Two new migrations: `20260420000000_documents_rag_pipeline.sql` (private `documents-bucket` Storage bucket at 25 MB for pdf/docx/txt/octet-stream; anon INSERT/SELECT/DELETE RLS scoped to `portfolios/*` — same demo caveat as the CSV bucket; `pg_net` extension; `public.trigger_embed_document()` SECURITY DEFINER with pinned `search_path`; AFTER INSERT trigger `documents_embed_trigger` POSTing `{record: row_to_json(NEW)}` to the embed function; two `alter database postgres set app.settings.*` statements left commented out so the service_role key never lands in git) and `20260420000100_match_document_chunks_rpc.sql` (`match_document_chunks(p_portfolio_id, query_embedding vector(384), match_threshold, match_count)` → `(id, document_id, chunk_text, similarity)` where `similarity = 1 - (embedding <=> query)`, `language sql stable` so the planner reuses the ivfflat cosine index). Edge Functions: `embed` now downloads from Storage with service_role, extracts text via `npm:unpdf` / `npm:mammoth` / `TextDecoder`, whitespace-chunks at 400 words / 50-word overlap (≈500 BPE tokens, under gte-small's 512 context; chunks < 20 chars dropped), generates 384-dim vectors with `Supabase.ai.Session('gte-small')`, bulk-inserts into `document_chunks`, and flips `documents.embedding_status` to `complete` — runtime failures land as `embedding_status = 'failed:<reason>'` and return 200 so pg_net doesn't retry. `query` embeds the question, calls the RPC, builds a prompt with numbered `[Cn]` excerpts, POSTs to OpenRouter (`deepseek/deepseek-v3.2`, temperature 0.2, 25 s `AbortController` timeout) with `HTTP-Referer: https://enlaye.com` + `X-Title: Enlaye`; confidence `high` if top similarity ≥ 0.7 else `medium`, `low` when no chunks pass threshold. Frontend adds `document-upload.tsx` (client, upload path `portfolios/<id>/docs/<ts>-<safeFilename>`; two-step Storage-then-row order so the trigger finds the file), `document-list.tsx` (server, pending/complete/failed pills with reason passthrough), `chat-interface.tsx` (client, posts directly to `${SUPABASE_URL}/functions/v1/query` with anon key, citation chips split on `/\[C(\d+)\]/g` scroll + ring the matching source card, native `<input type="range">` sliders for `top_k` / `threshold` — no new dep, `AbortController` cancels in-flight on unmount / new submit) and `chat-interface-lazy.tsx` wrapper; `app/portfolios/[id]/page.tsx` parallel-fetches documents and mounts new `#documents` + `#ask` sections; `dashboard-shell.tsx` enables the Documents nav and adds an Ask nav with `MessageSquare` icon. Deployed: `supabase db push` applied both migrations; `supabase secrets set OPENROUTER_API_KEY=... OPENROUTER_MODEL=deepseek/deepseek-v3.2`; `embed` deployed with `--no-verify-jwt` (internal webhook only — JWT re-enable is a one-line change once the `app.settings.*` GUCs are set manually via psql); `query` deployed with JWT verification. Sharp edges (documented in WORKSTREAMS.md session 6): Storage orphan on `documents` insert failure (FIXME), `embedding_status` overloaded with `failed:<reason>`, `portfolio_id` trusted from request body (single-user demo posture), `ivfflat lists=100` over-partitions tiny corpora, full chunk_text sent to LLM (not preview) guarded only by `top_k` cap of 20. Codex:rescue review was attempted but interrupted — to be run on the Phase 5 changes before or during Phase 6.
 - **2026-04-18** — Phase 4 (two-model comparison, the showcase) landed. New `ml-service/models.py` exposes `train_naive_model` and `train_pre_construction_model` over a shared `_train` helper — both return a `ModelResult` TypedDict `{accuracy, features_used, feature_importances, n_training_samples}`. Target: `payment_disputes >= 1` on completed rows; encoding via `pd.get_dummies(drop_first=False, dtype=float)`; model is `LogisticRegression(max_iter=1000, random_state=42)` with no CV (9-row dataset). `InsufficientTrainingData` raised below `MINIMUM_TRAINING_SAMPLES=5`; single-class target short-circuits to `accuracy=1.0, feature_importances={}`. `/train` endpoint in `ml-service/main.py` rebuilds the cleaned DataFrame from Postgres rows (date re-coercion), calls both trainers, catches `InsufficientTrainingData → 400 { error, n_completed_projects, minimum_required }`, persists two `model_runs` rows via snapshot + delete-then-insert with rollback, and returns `TrainResponse` with Postgres-generated UUIDs. Full ML test suite at 35 passing (9 cleaning + 12 ingest + 8 models + 6 train). Frontend adds `ModelComparison` (client — two-card side-by-side with red-accented naive column, emerald pre_construction column, horizontal Recharts bars with per-row Cell fill highlighting leaky features, "Why two models?" footer) and `TrainModelsButton` (client — `AbortController`-gated POST with FastAPI-detail error extraction, `router.refresh()` on success). `app/portfolios/[id]/page.tsx` fetches `model_runs` in parallel with portfolio + projects, gates the train button at `completedCount >= 5`, and adds a `#models` section. `dashboard-shell.tsx` re-enables the Models nav item.
 - **2026-04-18** — Phase 3 (Summary Dashboard) landed. Three new frontend components: `portfolio-summary.tsx` (client — stat tiles + Recharts bar charts for mean delay / mean cost overrun by project type + Recharts donut for projects by region, with per-chart empty-state fallbacks and null/NaN guards on every aggregation), `anomaly-list.tsx` (server — flagged-project cards with per-rule descriptions embedding actual row values and thresholds), `dashboard-shell.tsx` (server — sticky top header + CSS-only responsive sidebar with Overview/Projects/Anomalies hash-anchor nav, disabled Documents/Models items teasing Phase 4+/5, plus reusable `EmptyState` primitive). `app/portfolios/[id]/page.tsx` now wraps content in `DashboardShell` with `#overview` / `#projects` / `#anomalies` section anchors. Codex adversarial review returned no blocking issues but three MEDIUMs applied: threshold copy now reads `> 25%` / `> 150 days` (matches strict-inequality semantics in `ml-service/cleaning.py` ANOMALY_RULES), donut palette expanded from 6 to 10 colors, bar-chart x-axis labels rotated -20° with `interval={0}` to prevent overlap on long `project_type` strings.
