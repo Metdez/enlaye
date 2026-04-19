@@ -1,0 +1,64 @@
+PROJECT ALPHA — Q1 2026 QUARTERLY STATUS REPORT
+Prepared by: Northeast Regional Construction Office
+Date: 2026-04-01
+Distribution: Owner, Lender, Design Team, Subcontractor Leads
+Document ID: PA-QSR-2026-Q1
+
+1. EXECUTIVE SUMMARY
+
+Project Alpha — a 14-story mixed-use commercial development at 248 Harbor Street, Boston — completed its third quarter of vertical construction with the building enclosure now 78% complete. Substantial completion remains scheduled for November 14, 2026, but the project is currently tracking 47 calendar days behind the baseline schedule and 8.2% over the original $52M contract value. Both variances are within the contingency allowance approved by the lender in December 2025, but the trend warrants closer attention in Q2.
+
+The single largest contributor to schedule slippage was a six-week delay in the structural steel package caused by a fabrication-shop failure at Northeast Steel Works (NSW). NSW's primary CNC press went out of service for unscheduled maintenance on January 8, 2026 and did not return to production until February 19. The general contractor has since negotiated a replacement supplier (Atlantic Steel Fabricators) for the remaining 220 tons of structural steel, and Atlantic delivered its first sequence on March 22, two days ahead of the recovery schedule.
+
+2. SCHEDULE STATUS
+
+Baseline substantial completion: September 28, 2026
+Current forecast substantial completion: November 14, 2026
+Calendar slippage: 47 days
+Critical path: Structural steel → MEP rough-in → Curtain wall installation
+
+The critical path runs through the south tower elevator core, which depends on completion of the steel above level 11. Atlantic Steel's revised delivery sequence places the final steel pour on May 30, 2026 — three weeks later than the baseline but compressed enough that MEP rough-in on the upper floors can begin in parallel rather than sequentially.
+
+A secondary delay of 11 days occurred in February when an unanticipated underground utility (an unmapped 1948 storm drain serving the adjacent property) required a redesign of the loading-dock foundation. The owner approved Change Order CO-014 covering both the redesign fee ($28,400) and the foundation rework ($91,600).
+
+3. BUDGET STATUS
+
+Original contract value: $52,000,000
+Approved change orders to date: $4,260,000 (8.2% of original)
+Current forecast at completion: $56,260,000
+
+Approved change orders break down as follows:
+- CO-007 (curtain wall upgrade per owner request): $1,840,000
+- CO-011 (mechanical equipment specification change, code-driven): $720,000
+- CO-014 (loading dock foundation, unforeseen utility): $120,000
+- CO-016 (additional fire-rated assemblies, AHJ-driven): $310,000
+- Other approved COs (≤$100K each, 18 items): $1,270,000
+
+Pending change orders under review by the owner total $640,000, of which the largest single item is CO-022 (structural steel premium for accelerated Atlantic Steel delivery, $410,000). The general contractor and the owner are in active negotiation; resolution is expected by April 30, 2026.
+
+4. SAFETY
+
+Project Alpha has logged 2 recordable safety incidents during Q1 2026:
+- January 14: First-aid only — a sheet metal worker received a minor laceration to the left forearm during ductwork installation on level 7. No lost time. Root cause: missing cut-resistant glove. Corrective action: site-wide glove audit completed January 16; supplemental PPE training delivered to all sheet metal subcontractors January 22.
+- March 3: Lost-time injury (3 days) — a laborer slipped on an icy stairwell on the south tower. Root cause: stairwell de-icing crew had not yet reached the south tower at shift start. Corrective action: revised de-icing route map; all stairwells now de-iced before 6:00 AM start; secondary inspection by site safety officer at 6:30 AM logged daily.
+
+There have been no OSHA-recordable injuries during the calendar year prior to Q1 2026. The site total recordable incident rate (TRIR) for the rolling 12-month period is 1.4, which remains below both the company target (2.0) and the BLS construction-industry average (2.7).
+
+5. SUBCONTRACTOR ISSUES
+
+Three subcontractor issues are tracked as open in the project risk register:
+
+(a) Northeast Steel Works (NSW) — delivery default. NSW failed to meet its February 5 milestone delivery and was issued a notice of default on February 12. The contract was terminated for cause on February 28 after NSW declined to provide adequate assurance of recovery. Atlantic Steel Fabricators replaced NSW for the remainder of the structural steel scope. NSW's surety, Continental Bonding, has acknowledged the claim and is in active resolution; the GC's exposure is currently estimated at $340,000 net of bond proceeds.
+
+(b) Premier Glass — quality nonconformance. Two curtain-wall units delivered February 9 failed the post-installation water-infiltration test on February 14. Premier Glass replaced both units at no cost, but the rework added 4 days to the curtain wall sequence. No further nonconformances have been observed in the subsequent 18 unit deliveries.
+
+(c) Apex Mechanical — staffing concern. Apex has reported difficulty staffing the level 11–14 ductwork installation due to a labor shortage in Boston-area sheet metal trades. The project team is monitoring weekly headcount; if Apex falls below 12 sheet metal workers on site for two consecutive weeks, the GC will issue a notice of slow performance.
+
+6. NEXT QUARTER PRIORITIES
+
+- Recover 14 of the 47 lost calendar days by sequencing MEP and structural concurrently on levels 11–14.
+- Resolve CO-022 negotiation with the owner.
+- Complete weather-tight enclosure by July 31, 2026.
+- Reduce open RFI count from 38 to under 20.
+
+End of report.

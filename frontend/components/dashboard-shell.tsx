@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   FileText,
   LayoutDashboard,
+  MessageSquare,
   Sparkles,
   Table2,
 } from "lucide-react";
@@ -34,19 +35,17 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "#overview", icon: LayoutDashboard },
   { label: "Projects", href: "#projects", icon: Table2 },
   { label: "Anomalies", href: "#anomalies", icon: AlertTriangle },
-  {
-    label: "Documents",
-    href: "#documents",
-    icon: FileText,
-    disabled: true,
-    disabledTooltip: "Coming in Phase 5",
-  },
+  { label: "Documents", href: "#documents", icon: FileText },
   { label: "Models", href: "#models", icon: Sparkles },
+  { label: "Ask", href: "#ask", icon: MessageSquare },
 ];
 
 // WHY: small presentational component rather than inlining the ternary twice.
 // Hash-only anchors use plain <a> (per next/link guidance — Link is for
 // route transitions, not same-page jumps).
+// WHY: focus-visible ring is shared across both variants so keyboard users
+// always see where they are in the tab order. Tailwind's focus-visible
+// pseudo-class only fires for keyboard focus, so mouse clicks stay quiet.
 function SidebarItem({
   item,
   variant,
@@ -55,6 +54,8 @@ function SidebarItem({
   variant: "desktop" | "mobile";
 }): ReactElement {
   const Icon = item.icon;
+  const focusRing =
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-950";
   const desktopClasses =
     "flex items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300";
   const mobileClasses =
@@ -68,7 +69,7 @@ function SidebarItem({
         title={item.disabledTooltip}
         aria-disabled="true"
       >
-        <Icon size={16} className="text-zinc-500" />
+        <Icon size={16} className="text-zinc-500" aria-hidden="true" />
         <span>{item.label}</span>
       </span>
     );
@@ -77,9 +78,9 @@ function SidebarItem({
   return (
     <a
       href={item.href}
-      className={`${baseClasses} hover:bg-zinc-100 dark:hover:bg-zinc-900`}
+      className={`${baseClasses} ${focusRing} hover:bg-zinc-100 dark:hover:bg-zinc-900`}
     >
-      <Icon size={16} className="text-zinc-500" />
+      <Icon size={16} className="text-zinc-500" aria-hidden="true" />
       <span>{item.label}</span>
     </a>
   );
@@ -100,7 +101,7 @@ export function DashboardShell({
         <div className="flex min-w-0 items-center gap-2">
           <Link
             href="/"
-            className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-50"
+            className="rounded-sm text-sm font-semibold tracking-tight text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:text-zinc-50 dark:focus-visible:ring-offset-zinc-950"
           >
             Enlaye
           </Link>
@@ -154,20 +155,30 @@ export function DashboardShell({
 // Reusable empty-state card for "no documents yet" / "no model runs yet"
 // placeholders. Kept in this file because it's a layout primitive that
 // pairs with DashboardShell — not big enough to deserve its own file yet.
+// WHY: `hint` is the "what to do next" line — every empty state should tell
+// the user the unblock action so the screen never feels like a dead end.
+// `aria-live="polite"` lets screen readers announce when an async section
+// finishes loading into an empty state without interrupting the user.
 export function EmptyState({
   title,
   description,
+  hint,
   icon: Icon,
 }: {
   title: string;
   description?: string;
+  hint?: string;
   icon?: ComponentType<{ size?: number; className?: string }>;
 }): ReactElement {
   return (
-    <div className="rounded-lg border border-zinc-200 p-8 text-center dark:border-zinc-800">
+    <div
+      className="rounded-lg border border-dashed border-zinc-300 p-8 text-center dark:border-zinc-700"
+      role="status"
+      aria-live="polite"
+    >
       {Icon ? (
         <div className="mb-3 flex justify-center">
-          <Icon size={40} className="text-zinc-400" />
+          <Icon size={40} className="text-zinc-400" aria-hidden="true" />
         </div>
       ) : null}
       <p className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
@@ -175,6 +186,11 @@ export function EmptyState({
       </p>
       {description ? (
         <p className="mt-1 text-xs text-zinc-500">{description}</p>
+      ) : null}
+      {hint ? (
+        <p className="mt-3 text-xs font-medium text-blue-600 dark:text-blue-400">
+          {hint}
+        </p>
       ) : null}
     </div>
   );

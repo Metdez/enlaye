@@ -1,0 +1,75 @@
+PORTFOLIO-WIDE SAFETY INCIDENT SUMMARY
+Reporting period: January 1, 2025 — March 31, 2026 (15 months)
+Prepared by: Corporate Safety Director
+Document ID: SAF-SUM-2026-Q1
+Distribution: Executive Committee, Project Executives, Insurance Carrier
+
+1. OVERVIEW
+
+This summary covers all OSHA-recordable safety incidents across the active project portfolio (15 projects, $725M aggregate contract value) for the trailing 15-month period. A total of 32 recordable incidents were logged: 26 first-aid only, 4 lost-time injuries (LTI), 1 hospitalization, and 1 fatality. The portfolio total recordable incident rate (TRIR) for the period was 2.1, slightly below the BLS construction-industry average of 2.7 but above the company strategic target of 1.8.
+
+The fatality, occurring at the Airport Terminal Expansion project on August 12, 2025, has been investigated by OSHA, the company's internal safety review board, and an independent third-party safety consultant. Findings are summarized in section 4.
+
+2. INCIDENT BREAKDOWN BY PROJECT
+
+Airport Terminal Expansion (Northeast, $120M): 9 recordable incidents — 7 first-aid, 1 LTI, 1 fatality. The highest incident count in the portfolio. Contributing factors: scale (peak workforce of 340), aggressive schedule, multiple trades on the same floor plate, and complex airside coordination requirements.
+
+Wastewater Treatment Plant (Southeast, $88M): 6 recordable incidents — 5 first-aid, 1 LTI. Heavy mechanical and confined-space work; two of the first-aid incidents involved minor chemical exposure during testing.
+
+University Science Building (Northeast, $52M): 4 recordable incidents — all first-aid. Predominantly slips/trips during winter months; site-wide ice management program revised in November 2025.
+
+Hospital Renovation (Midwest, $35M): 3 recordable incidents — 2 first-aid, 1 LTI. The LTI involved a rigger struck by a swinging beam on June 4, 2025; rigger returned to work after 18 days. Lift planning protocols were updated portfolio-wide in response.
+
+Coastal Highway Rehab (Southwest, $67M, in progress): 3 recordable incidents — 3 first-aid. All three involved highway-traffic interface; project has since deployed a dedicated flagging crew and added a temporary concrete barrier.
+
+Harbor Bridge Expansion (Northeast, $45M): 2 recordable incidents — 2 first-aid.
+
+Residential Tower Block A (Southeast, $18M): 2 recordable incidents — 2 first-aid.
+
+Industrial Warehouse Complex, Solar Farm Installation, Wind Farm Phase 1, Data Center Build, Downtown Office Tower, Retail Shopping Center, Bridge Deck Replacement, Rail Yard Modernization: 1 incident or fewer each. Combined: 3 first-aid, 1 hospitalization (Solar Farm — heat stress event July 2025, worker recovered fully).
+
+3. INCIDENTS BY TYPE
+
+- Slips, trips, and falls (same level): 11 (34%)
+- Struck-by (tools, materials, equipment): 9 (28%)
+- Cuts and lacerations: 5 (16%)
+- Caught-in / caught-between: 3 (9%)
+- Falls from elevation: 2 (6%) — both LTI
+- Heat stress / cold stress: 1 (3%) — hospitalization
+- Electrical: 1 (3%)
+- Fatality (struck-by, see section 4): 1 (3%)
+
+4. FATALITY INVESTIGATION SUMMARY
+
+Date: August 12, 2025
+Project: Airport Terminal Expansion
+Trade: Steel erection
+Description: An ironworker was struck by a falling steel decking sheet during deck installation at level 4. The deck sheet (approximately 180 lbs) had been temporarily laid in place but not yet welded down. A gust of wind, combined with the bundle straps having been removed prematurely by a separate crew, caused the sheet to slide off the supporting beam.
+
+Root causes identified:
+- Sequencing failure: deck strap removal was performed by a non-erection crew member without verification that the sheet was secured.
+- Supervision gap: the lead foreman for steel erection was on a different floor at the time.
+- Communication failure: the sequencing change had been discussed in the morning toolbox talk but not documented in the daily lift plan.
+
+Corrective actions (deployed portfolio-wide by October 2025):
+- All steel decking strap removal must be performed by the erection crew only, verified by signed sign-off on the daily deck plan.
+- Daily lift plans now require a written sequencing diagram for any deck installation work, signed by the lead foreman and the site safety officer before work begins.
+- Pre-task briefings are now mandatory before deck strap removal, regardless of crew familiarity.
+- A wind-speed cutoff of 20 mph (sustained) for unsecured deck panels has been added to the company-wide steel-erection SOP.
+
+OSHA citations issued: 2 serious citations, $28,420 total fine (paid). No willful or repeat citations. The independent third-party review concluded that the company's safety program design was adequate but that field execution of the lift-plan documentation requirement had been inconsistent — a finding the corrective actions directly address.
+
+5. TRENDS
+
+Comparing the trailing 15 months to the prior 15 months, total recordable incidents decreased from 41 to 32 (-22%), but severity increased — the prior period had no fatalities. First-aid incidents are down 26%; LTI rate is flat; hospitalization rate is up (0 → 1).
+
+The largest year-over-year improvement is in slip/trip/fall incidents on completed projects, which decreased 38% following the Q4 2024 deployment of the standardized site housekeeping protocol.
+
+6. RECOMMENDATIONS
+
+- Maintain the wind-speed cutoff and lift-plan documentation enforcement on all active steel erection work.
+- Expand the airside-coordination training program (originally developed for Airport Terminal) to all infrastructure projects with vehicular interface.
+- Continue rolling out the standardized housekeeping protocol; uptake on the four newest projects is currently 60%.
+- Bring TRIR back to the company target of 1.8 by year-end 2026 through continued focus on the top three incident types.
+
+End of summary.

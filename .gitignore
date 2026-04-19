@@ -38,6 +38,9 @@ coverage/
 .pytest_cache/
 .mypy_cache/
 
+# Local intermediates / drafts (per global rules)
+.tmp/
+
 # Vercel
 .vercel
 

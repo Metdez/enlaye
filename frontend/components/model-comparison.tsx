@@ -13,6 +13,7 @@
 // them in as plain props.
 
 import { useMemo, type ReactElement } from "react";
+import { Sparkles } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -23,6 +24,7 @@ import {
   YAxis,
 } from "recharts";
 import type { ModelRun, ModelType } from "@/lib/types";
+import { EmptyState as SharedEmptyState } from "./dashboard-shell";
 
 // WHY: the canonical set of post-hoc / leaky feature names. These are numeric
 // columns (not one-hot-encoded), so equality against this set is sufficient —
@@ -157,8 +159,21 @@ function ImportanceChart({
   // ~10 one-hot encoded categorical levels. Floor of 160 stops the chart
   // from collapsing when we only have 2-3 features.
   const height = Math.max(160, data.length * 28);
+  // WHY: build a screen-reader summary so the SVG isn't an opaque image.
+  // Names the top three features and (for the naive model) calls out leaky
+  // ones so the leakage story comes through to assistive tech.
+  const top = data.slice(0, 3);
+  const topSummary = top
+    .map((d) => `${d.label} ${d.importance.toFixed(2)}`)
+    .join(", ");
+  const leakyCount = data.filter((d) => d.leaky).length;
+  const variantNote =
+    variant === "naive" && leakyCount > 0
+      ? ` ${leakyCount} of these features leak post-hoc information.`
+      : "";
+  const ariaLabel = `Feature importance bar chart. Top features: ${topSummary}.${variantNote}`;
   return (
-    <div style={{ width: "100%", height }}>
+    <div style={{ width: "100%", height }} role="img" aria-label={ariaLabel}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
@@ -265,14 +280,6 @@ function ModelCard({
   );
 }
 
-function EmptyState({ message }: { message: string }): ReactElement {
-  return (
-    <div className="rounded-lg border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
-      {message}
-    </div>
-  );
-}
-
 export function ModelComparison({
   runs,
 }: {
@@ -286,7 +293,12 @@ export function ModelComparison({
 
   if (!runs || runs.length === 0) {
     return (
-      <EmptyState message="No model runs yet. Click Train Models to compare the naive and pre-construction models." />
+      <SharedEmptyState
+        icon={Sparkles}
+        title="No model runs yet"
+        description="The naive vs. pre-construction comparison hasn't been built for this portfolio."
+        hint="Click Train models above to fit both models."
+      />
     );
   }
   // WHY: a partial write (or a mid-air failure on one of the two insert
@@ -297,8 +309,11 @@ export function ModelComparison({
     const present = naive !== null ? "naive" : "pre-construction";
     const missing = naive !== null ? "pre-construction" : "naive";
     return (
-      <EmptyState
-        message={`Only the ${present} model has a recorded run; ${missing} is missing. Click Train Models to rebuild the comparison.`}
+      <SharedEmptyState
+        icon={Sparkles}
+        title="Comparison incomplete"
+        description={`Only the ${present} model has a recorded run; ${missing} is missing.`}
+        hint="Click Train models above to rebuild the comparison."
       />
     );
   }

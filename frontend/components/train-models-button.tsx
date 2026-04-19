@@ -170,7 +170,8 @@ export function TrainModelsButton({
         disabled={isDisabled}
         aria-busy={loading}
         aria-disabled={isDisabled}
-        className="inline-flex items-center gap-2 rounded-md border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        aria-label={loading ? "Training models, please wait" : "Train models"}
+        className="inline-flex items-center gap-2 rounded-md border border-zinc-900 bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus-visible:ring-offset-zinc-950"
       >
         {loading ? (
           <>
@@ -188,13 +189,15 @@ export function TrainModelsButton({
       {error ? (
         <div
           role="alert"
+          aria-live="assertive"
           className="mt-2 flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300"
         >
           <span className="break-words">{error}</span>
           <button
             type="button"
             onClick={dismissError}
-            className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium underline underline-offset-2 hover:bg-red-100 dark:hover:bg-red-900/40"
+            aria-label="Dismiss training error"
+            className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium underline underline-offset-2 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 dark:hover:bg-red-900/40"
           >
             Try again
           </button>

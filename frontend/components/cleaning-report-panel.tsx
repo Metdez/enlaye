@@ -6,7 +6,7 @@
 // by default so the table remains the visual focus. See
 // [page.tsx](../app/portfolios/[id]/page.tsx).
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { CleaningReport } from "@/lib/types";
 
 export function CleaningReportPanel({
@@ -19,6 +19,9 @@ export function CleaningReportPanel({
   anomalyCount: number;
 }) {
   const [open, setOpen] = useState(false);
+  // WHY: stable id pair so aria-controls / aria-labelledby reference the same
+  // panel across renders. useId() is SSR-safe (unlike Math.random()).
+  const panelId = useId();
 
   const imputations = report.imputations ?? [];
   const typeCoercions = report.type_coercions ?? [];
@@ -30,12 +33,16 @@ export function CleaningReportPanel({
   const summary = `${rowCount} rows loaded · ${totalImputed} values imputed across ${columnsTouched} columns · ${anomalyCount} anomalies flagged · ${rowsRejected} rows rejected`;
 
   return (
-    <section className="rounded-lg border border-zinc-200 dark:border-zinc-800">
+    <section
+      className="rounded-lg border border-zinc-200 dark:border-zinc-800"
+      aria-label="Cleaning report"
+    >
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
+        aria-controls={panelId}
+        className="flex w-full items-center justify-between gap-4 rounded-lg px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-950"
       >
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -54,7 +61,10 @@ export function CleaningReportPanel({
       </button>
 
       {open ? (
-        <div className="border-t border-zinc-200 p-4 dark:border-zinc-800">
+        <div
+          id={panelId}
+          className="border-t border-zinc-200 p-4 dark:border-zinc-800"
+        >
           <div className="grid gap-6 md:grid-cols-3">
             <div>
               <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">

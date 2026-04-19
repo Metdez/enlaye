@@ -1,5 +1,8 @@
 {
   "imports": {
-    "@supabase/functions-js": "jsr:@supabase/functions-js@^2"
+    "@supabase/functions-js": "jsr:@supabase/functions-js@^2",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2",
+    "unpdf": "npm:unpdf@^0.12.1",
+    "mammoth": "npm:mammoth@^1.8.0"
   }
 }

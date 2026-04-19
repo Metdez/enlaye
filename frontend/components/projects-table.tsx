@@ -4,8 +4,10 @@
 // See [page.tsx](../app/portfolios/[id]/page.tsx).
 
 import type { ReactElement } from "react";
+import { Table2 } from "lucide-react";
 import type { ProjectRow } from "@/lib/types";
 import { AnomalyPillList } from "./anomaly-pill";
+import { EmptyState } from "./dashboard-shell";
 
 // WHY: compact notation keeps the contract_value column narrow ("$45M")
 // without sacrificing legibility. Intl.NumberFormat is instantiated once
@@ -43,28 +45,38 @@ export function ProjectsTable({
 }): ReactElement {
   if (rows.length === 0) {
     return (
-      <div className="rounded-md border border-zinc-200 p-6 text-center text-sm text-zinc-500 dark:border-zinc-800">
-        No project rows were stored for this portfolio.
-      </div>
+      <EmptyState
+        icon={Table2}
+        title="No projects in this portfolio"
+        description="Upload a CSV from the home page to populate the projects table."
+        hint="Once rows are ingested they appear here with anomaly flags."
+      />
     );
   }
 
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
       <table className="min-w-full text-sm tabular-nums">
+        {/* WHY: visually hidden caption gives screen-reader users the table's
+            purpose without affecting layout. `sr-only` is a Tailwind helper
+            that hides content visually but keeps it in the accessibility tree. */}
+        <caption className="sr-only">
+          Projects in this portfolio with delay, cost overrun, safety, dispute,
+          status, and anomaly flag columns.
+        </caption>
         <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
           <tr>
-            <th className="px-3 py-2 font-medium">ID</th>
-            <th className="px-3 py-2 font-medium">Name</th>
-            <th className="px-3 py-2 font-medium">Type</th>
-            <th className="px-3 py-2 text-right font-medium">Contract value</th>
-            <th className="px-3 py-2 font-medium">Region</th>
-            <th className="px-3 py-2 text-right font-medium">Delay (d)</th>
-            <th className="px-3 py-2 text-right font-medium">Cost overrun</th>
-            <th className="px-3 py-2 text-right font-medium">Safety</th>
-            <th className="px-3 py-2 text-right font-medium">Disputes</th>
-            <th className="px-3 py-2 font-medium">Status</th>
-            <th className="px-3 py-2 font-medium">Anomalies</th>
+            <th scope="col" className="px-3 py-2 font-medium">ID</th>
+            <th scope="col" className="px-3 py-2 font-medium">Name</th>
+            <th scope="col" className="px-3 py-2 font-medium">Type</th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">Contract value</th>
+            <th scope="col" className="px-3 py-2 font-medium">Region</th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">Delay (d)</th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">Cost overrun</th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">Safety</th>
+            <th scope="col" className="px-3 py-2 text-right font-medium">Disputes</th>
+            <th scope="col" className="px-3 py-2 font-medium">Status</th>
+            <th scope="col" className="px-3 py-2 font-medium">Anomalies</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">

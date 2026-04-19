@@ -10,6 +10,7 @@
 // the server would mean a round trip for a view that's purely presentational.
 
 import { useMemo, type ReactElement } from "react";
+import { BarChart3 } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -24,6 +25,7 @@ import {
   YAxis,
 } from "recharts";
 import type { Portfolio, ProjectRow } from "@/lib/types";
+import { EmptyState } from "./dashboard-shell";
 
 // WHY: compact currency formatter instantiated once at module scope to avoid
 // allocating an Intl.NumberFormat on every render. Matches projects-table.tsx.
@@ -123,9 +125,13 @@ function StatTile({
 
 function ChartCard({
   title,
+  description,
   children,
 }: {
   title: string;
+  // WHY: optional plain-text summary the screen reader announces in place of
+  // the SVG. Without this, charts read as "image" with no context.
+  description?: string;
   children: ReactElement;
 }): ReactElement {
   return (
@@ -133,7 +139,9 @@ function ChartCard({
       <h3 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500">
         {title}
       </h3>
-      {children}
+      <div role="img" aria-label={description ?? title}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -192,9 +200,12 @@ export function PortfolioSummary({
 
   if (projects.length === 0) {
     return (
-      <div className="rounded-lg border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
-        No projects in this portfolio yet.
-      </div>
+      <EmptyState
+        icon={BarChart3}
+        title="No project data to summarize"
+        description="Charts and totals will appear once a CSV is ingested."
+        hint="Upload a portfolio from the home page to get started."
+      />
     );
   }
 
@@ -217,7 +228,14 @@ export function PortfolioSummary({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Mean delay days by project type">
+        <ChartCard
+          title="Mean delay days by project type"
+          description={
+            delayByType.length === 0
+              ? "Bar chart with no data."
+              : `Bar chart of mean delay days across ${delayByType.length} project types. Highest: ${delayByType.reduce((a, b) => (a.value > b.value ? a : b)).type}.`
+          }
+        >
           {delayByType.length === 0 ? (
             <EmptyChartBody />
           ) : (
@@ -244,7 +262,14 @@ export function PortfolioSummary({
           )}
         </ChartCard>
 
-        <ChartCard title="Mean cost overrun % by project type">
+        <ChartCard
+          title="Mean cost overrun % by project type"
+          description={
+            overrunByType.length === 0
+              ? "Bar chart with no data."
+              : `Bar chart of mean cost overrun percentage across ${overrunByType.length} project types. Highest: ${overrunByType.reduce((a, b) => (a.value > b.value ? a : b)).type}.`
+          }
+        >
           {overrunByType.length === 0 ? (
             <EmptyChartBody />
           ) : (
@@ -273,7 +298,14 @@ export function PortfolioSummary({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Projects by region">
+        <ChartCard
+          title="Projects by region"
+          description={
+            byRegion.length === 0
+              ? "Pie chart with no data."
+              : `Pie chart of project counts across ${byRegion.length} region${byRegion.length === 1 ? "" : "s"}. Largest: ${byRegion[0].region} with ${byRegion[0].value} project${byRegion[0].value === 1 ? "" : "s"}.`
+          }
+        >
           {byRegion.length === 0 ? (
             <EmptyChartBody />
           ) : (

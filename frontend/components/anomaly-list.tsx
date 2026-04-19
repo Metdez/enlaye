@@ -6,7 +6,9 @@
 // See [anomaly-pill.tsx](./anomaly-pill.tsx) for the palette this mirrors.
 
 import type { ReactElement } from "react";
+import { CheckCircle2 } from "lucide-react";
 import type { ProjectRow } from "@/lib/types";
+import { EmptyState } from "./dashboard-shell";
 
 // WHY: compact notation keeps contract values narrow ("$12.5M") in the card
 // subheader. Instantiated once at module scope to avoid allocating per row.
@@ -122,9 +124,12 @@ export function AnomalyList({
 
   if (flagged.length === 0) {
     return (
-      <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-6 text-center text-sm text-zinc-500">
-        No anomalies flagged in this portfolio.
-      </div>
+      <EmptyState
+        icon={CheckCircle2}
+        title="No anomalies flagged"
+        description="Every project in this portfolio passed the threshold checks."
+        hint="Upload a richer portfolio to see anomaly detection in action."
+      />
     );
   }
 
@@ -139,12 +144,15 @@ export function AnomalyList({
   });
 
   return (
-    <div className="space-y-3">
+    <ul
+      className="space-y-3 list-none p-0"
+      aria-label={`${sorted.length} flagged project${sorted.length === 1 ? "" : "s"}`}
+    >
       {sorted.map(({ project, flags }) => {
         const header = formatHeader(project);
         const subheader = formatSubheader(project);
         return (
-          <div
+          <li
             key={project.id}
             className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 space-y-3"
           >
@@ -189,9 +197,9 @@ export function AnomalyList({
                 );
               })}
             </ul>
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }

@@ -1,0 +1,91 @@
+PORTFOLIO CHANGE ORDER LOG
+Reporting period: January 1, 2024 — March 31, 2026
+Prepared by: Portfolio Cost Controls
+Document ID: CO-LOG-2026-Q1
+Distribution: Project Executives, Owner Representatives, Lender (summary only)
+
+1. OVERVIEW
+
+This log records all approved change orders across the active project portfolio for the trailing 27-month period. A total of 142 change orders were approved with an aggregate cost impact of $18.94M (2.6% of $725M aggregate baseline contract value). 22 change orders are currently pending review with a maximum potential exposure of $3.1M.
+
+The largest single approved change order during the period was CO-031 on the Airport Terminal Expansion project ($2.4M, owner-directed scope addition for an additional security screening lane). The most cost-impactful project on a percentage basis was the Wastewater Treatment Plant, where approved change orders total 8.7% of the original contract value, driven primarily by unforeseen subsurface conditions encountered during the deep aeration basin excavation.
+
+2. APPROVED CHANGE ORDERS — TOP TEN BY COST IMPACT
+
+CO-031 — Airport Terminal Expansion — $2,400,000 (owner-directed scope addition)
+Reason: Owner requested an additional security screening lane after TSA published revised throughput requirements in March 2024. Scope includes structural reinforcement of level 2 floor plate, additional X-ray equipment housing, and rerouting of duct runs.
+Schedule impact: +21 days (absorbed within float).
+
+CO-018 — Wastewater Treatment Plant — $1,860,000 (unforeseen subsurface)
+Reason: During excavation of the primary aeration basin in October 2024, the contractor encountered approximately 4,200 cubic yards of unmapped historical fill containing construction debris and trace petroleum contamination. Remediation required offsite disposal at a permitted facility.
+Schedule impact: +34 days.
+
+CO-007 — Project Alpha (Boston commercial) — $1,840,000 (owner upgrade)
+Reason: Owner elected to upgrade the curtain wall from a standard double-glazed system to a high-performance triple-glazed system with integrated photovoltaic spandrel panels. Decision driven by an energy-incentive program with a 36-month payback projection.
+Schedule impact: +14 days.
+
+CO-024 — Airport Terminal Expansion — $1,520,000 (code-driven)
+Reason: AHJ adopted updated IBC 2024 fire-resistance requirements for transit terminals in January 2025, after baseline design was complete. Required upgrade of fire-rated assemblies on levels 1 and 2.
+Schedule impact: +12 days.
+
+CO-009 — University Science Building — $1,180,000 (design change)
+Reason: Owner's research equipment vendor revised vibration tolerance specifications for the basement laboratory equipment. Required additional structural isolation pads, decoupled slab pour, and revised mechanical equipment selection.
+Schedule impact: +28 days.
+
+CO-014 — Hospital Renovation — $980,000 (unforeseen condition)
+Reason: Asbestos-containing materials encountered in the wing-3 ceiling plenum during demolition. Required licensed abatement, air monitoring, and ceiling system replacement.
+Schedule impact: +19 days.
+
+CO-022 — Coastal Highway Rehab — $920,000 (regulatory)
+Reason: State DOT issued revised work-zone traffic control standards in mid-project, requiring additional temporary concrete barrier and a permanent message board. Project team negotiated a partial cost recovery from the DOT.
+Schedule impact: +0 days (parallel work).
+
+CO-011 — Project Alpha (Boston commercial) — $720,000 (code-driven)
+Reason: Mechanical equipment specification change required by code amendment regarding refrigerant types in commercial HVAC equipment.
+Schedule impact: +0 days.
+
+CO-019 — Industrial Warehouse Complex — $640,000 (owner-directed)
+Reason: Owner added two truck dock positions and a second loading bay door after a tenant signed a lease that required higher throughput than the original design.
+Schedule impact: +9 days.
+
+CO-027 — Airport Terminal Expansion — $580,000 (subcontractor failure)
+Reason: Premium for accelerated steel delivery from replacement supplier after the original steel fabricator was terminated for cause. Recovery from original fabricator's surety bond is in process.
+Schedule impact: -7 days (recovery).
+
+3. CHANGE ORDERS BY ROOT CAUSE
+
+- Owner-directed scope additions or upgrades: 38 COs, $7.42M (39% of total impact)
+- Unforeseen subsurface or existing-condition issues: 24 COs, $4.18M (22%)
+- Code or regulatory changes during construction: 19 COs, $2.96M (16%)
+- Design errors or omissions: 22 COs, $1.84M (10%)
+- Subcontractor failure or quality nonconformance: 11 COs, $1.32M (7%)
+- Weather-related delays and recovery: 14 COs, $0.84M (4%)
+- Other (utility coordination, AHJ schedule, etc.): 14 COs, $0.38M (2%)
+
+4. CHANGE ORDERS BY PROJECT (Approved Total)
+
+Airport Terminal Expansion: $5,860,000 (4.9% of contract)
+Wastewater Treatment Plant: $7,650,000 (8.7% of contract)
+Project Alpha (Boston commercial): $4,260,000 (8.2% of contract)
+University Science Building: $1,720,000 (3.3% of contract)
+Hospital Renovation: $1,640,000 (4.7% of contract)
+Coastal Highway Rehab: $1,420,000 (2.1% of contract)
+Industrial Warehouse Complex: $980,000 (6.5% of contract)
+All other projects (combined): $2,410,000 (avg 2.0% of contract)
+
+5. PENDING CHANGE ORDERS UNDER REVIEW (Top Five)
+
+CO-022 (Project Alpha — Boston) — $410,000 — Steel acceleration premium. Resolution expected April 30, 2026.
+CO-035 (Airport Terminal) — $720,000 — Additional baggage handling conveyor. Owner deliberation in progress.
+CO-019 (Wastewater Treatment Plant) — $640,000 — Final remediation closeout, environmental sign-off pending.
+CO-014 (Coastal Highway Rehab) — $520,000 — Additional median barrier per updated DOT directive.
+CO-021 (Hospital Renovation) — $310,000 — IT/AV scope addition requested by hospital operator.
+
+6. NOTES AND RECOMMENDATIONS
+
+- The portfolio change order rate (2.6% of baseline) is below the company target of 4% and well below the industry average for similar work types (5–7%).
+- Subsurface conditions remain the most volatile category. The portfolio cost-controls team will pilot a pre-bid geotechnical due-diligence enhancement program on the next two infrastructure pursuits.
+- Code-driven changes are difficult to forecast but the new "code change watch" report (issued quarterly to project executives starting in Q2 2026) should provide earlier warning on specification updates.
+- Owner-directed change orders, while not avoidable, are the largest single category. Consider establishing an owner change-order budget at contract signing for projects exceeding $40M.
+
+End of log.
