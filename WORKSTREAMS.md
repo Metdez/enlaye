@@ -213,6 +213,22 @@ Every Claude Code session appends an entry here before handing control back. Kee
   - Subagent-driven development + Codex review gave genuinely different lenses: internal reviewers caught style + missing tests; Codex caught the RLS gap and the cross-ingest vulnerability that internal reviewers had already implicitly green-lit.
   - Railway was not GH-linked (per Phase 1), so deploys still require `railway up` from CLI. Vercel could be GH-linked later for auto-deploy on push.
 
+### 2026-04-18 — Session 4 — Phase 3 summary dashboard (parallel implementers)
+- **Did:**
+  - Ran Phase 3 via three parallel implementer agents on disjoint file trees (no reviewer loops this phase — specs were tight, typecheck + build + Codex:rescue gated merge instead): `portfolio-summary.tsx`, `anomaly-list.tsx`, `dashboard-shell.tsx`. Integration happened in the controller at `app/portfolios/[id]/page.tsx`.
+  - **PortfolioSummary** (client, `components/portfolio-summary.tsx`): 4 stat tiles (total contract value compact-USD, completed, in-progress, avg delay) + 2 Recharts bar charts (mean delay / mean cost overrun by project type) + Recharts donut (projects by region). All aggregations in `useMemo` with null/NaN guards; per-chart "Not enough data to chart." fallback when its bucket is empty; single-card empty-state when `projects.length === 0`.
+  - **AnomalyList** (server, `components/anomaly-list.tsx`): flagged projects as cards with per-rule descriptions that embed the actual row value and the threshold ("32.1% overrun (threshold 25%)"). Palette mirrors `anomaly-pill.tsx` (amber/orange/red/purple); FLAG_MAP duplicated locally to avoid editing `anomaly-pill.tsx` while parallel agents were in flight. Sort descending by flag count, stable on original order. Empty state when no flags.
+  - **DashboardShell** (server, `components/dashboard-shell.tsx`): sticky top header (Enlaye · portfolio name · row/anomaly counts, counts hidden below `sm`) + CSS-only responsive sidebar (vertical on md+, horizontal scrollable pills on mobile). Nav items: Overview, Projects, Anomalies (active hash links), Documents, Models (disabled, tooltip-hinting Phase 5 / Phase 4). Also exports `EmptyState` primitive for future placeholders. Uses `lucide-react` icons.
+  - **Page integration**: `app/portfolios/[id]/page.tsx` now wraps content in `DashboardShell`, adds `#overview` / `#projects` / `#anomalies` section anchors with `scroll-mt-20` for the sticky-header offset. Order: title/meta → cleaning report → overview → projects table → anomalies.
+  - **Verified**: `npx tsc --noEmit` clean; `npm run build` clean (all routes SSR or ISR as before); `vercel --prod` deployed; https://enlaye-five.vercel.app/ → 200.
+  - **Codex:rescue** review (codex exec --effort high): returned "No blocking issues found." (no CRITICAL, no HIGH). Three MEDIUMs all applied: (1) threshold copy drift — UI said "threshold 25%" / "threshold 150" but ML rules use strict `>`; now reads "> 25%" and "> 150 days". (2) Donut palette exhausted at 7+ regions — expanded from 6 to 10 colors. (3) Long `project_type` x-axis labels could overlap — added `interval={0}`, `angle={-20}`, `textAnchor="end"`, `height={56}` to both bar charts. One LOW (disabled-nav tabindex skipped — reviewed, accepted for demo), one NIT (duplicated FLAG_MAP — accepted, flagged in comment for Phase 4 reconciliation).
+- **Changed:** `IMPLEMENTATION.md` (Phase 3 checkboxes), `ARCHITECTURE.md` (changelog), this file.
+- **Next:** Phase 4 (two-model comparison — the showcase). Phase 5 (RAG) has higher novelty cost but the two-model comparison is what the assessment is asking about.
+- **Notes:**
+  - Skipped the two-reviewer-per-task loop for Phase 3. Justification: three small, self-contained UI components with tight specs; Codex:rescue + build acts as the review gate. For Phase 4 (multi-file change with ML logic crossing service boundaries) we're back to the full reviewer cycle.
+  - Mobile sidebar is CSS-only dual-DOM (both variants rendered, one hidden). Acceptable for 5 nav items; if the list grows we should switch to a client-side disclosure.
+  - Hash anchors use plain `<a>`, not `<Link>` — `next/link` is for route transitions, not same-page jumps. Documented in `dashboard-shell.tsx`.
+
 <!-- New sessions append above this line, below the Session 0 entry -->
 
 ---

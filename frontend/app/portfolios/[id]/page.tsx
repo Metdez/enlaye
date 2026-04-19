@@ -1,14 +1,17 @@
-// Portfolio detail page — header, cleaning summary, projects table.
+// Portfolio detail page — dashboard shell + overview + projects + anomalies.
 // WHY: server component so the initial load is SSR'd with no client-side
-// data fetching dance. Interactivity is scoped to the cleaning-report
-// panel (client), not the page shell.
+// data fetching dance. Interactivity is scoped to client leaves (cleaning
+// report panel, Recharts summary), not the page shell. Sections are anchored
+// with #overview / #projects / #anomalies so the sidebar nav can jump to them.
 
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createServerSupabase } from "@/lib/supabase";
 import type { Portfolio, ProjectRow } from "@/lib/types";
 import { CleaningReportPanel } from "@/components/cleaning-report-panel";
 import { ProjectsTable } from "@/components/projects-table";
+import { PortfolioSummary } from "@/components/portfolio-summary";
+import { AnomalyList } from "@/components/anomaly-list";
+import { DashboardShell } from "@/components/dashboard-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -70,41 +73,49 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
   const projects = (projectsResult.data ?? []) as ProjectRow[];
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <nav className="mb-6 text-sm">
-        <Link
-          href="/"
-          className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-        >
-          ← All portfolios
-        </Link>
-      </nav>
+    <DashboardShell portfolio={portfolio}>
+      <div className="space-y-10">
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+            {portfolio.name}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Created {formatCreatedAt(portfolio.created_at)} ·{" "}
+            <span className="tabular-nums">{portfolio.row_count}</span> rows ·{" "}
+            <span className="tabular-nums">{portfolio.anomaly_count}</span>{" "}
+            anomalies
+          </p>
+        </header>
 
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          {portfolio.name}
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Created {formatCreatedAt(portfolio.created_at)} ·{" "}
-          <span className="tabular-nums">{portfolio.row_count}</span> rows ·{" "}
-          <span className="tabular-nums">{portfolio.anomaly_count}</span> anomalies
-        </p>
-      </header>
-
-      <div className="mb-8">
         <CleaningReportPanel
           report={portfolio.cleaning_report ?? {}}
           rowCount={portfolio.row_count}
           anomalyCount={portfolio.anomaly_count}
         />
-      </div>
 
-      <section>
-        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500">
-          Projects
-        </h2>
-        <ProjectsTable rows={projects} />
-      </section>
-    </main>
+        {/* WHY: id="overview" etc. are the anchor targets the sidebar nav in
+            DashboardShell jumps to. Keep these in sync with NAV_ITEMS. */}
+        <section id="overview" className="scroll-mt-20 space-y-4">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+            Overview
+          </h2>
+          <PortfolioSummary portfolio={portfolio} projects={projects} />
+        </section>
+
+        <section id="projects" className="scroll-mt-20 space-y-4">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+            Projects
+          </h2>
+          <ProjectsTable rows={projects} />
+        </section>
+
+        <section id="anomalies" className="scroll-mt-20 space-y-4">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+            Anomalies
+          </h2>
+          <AnomalyList projects={projects} />
+        </section>
+      </div>
+    </DashboardShell>
   );
 }

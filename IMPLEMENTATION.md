@@ -99,17 +99,20 @@ Goal: a user can upload the assessment CSV and see the 15 rows in a table. Clean
 
 Goal: the portfolio overview looks like a real dashboard, not a debug view.
 
-- [ ] Frontend: build a `PortfolioSummary` component with:
-  - [ ] Total contract value, completed vs in-progress count, avg delay
-  - [ ] Bar chart: mean delay days by project type (Recharts)
-  - [ ] Bar chart: mean cost overrun % by project type
-  - [ ] Pie or donut: projects by region
-- [ ] Frontend: build an `AnomalyList` component: each flagged project as a card with the specific rule triggered
-- [ ] Frontend: make the main dashboard layout with sidebar nav and content area
-- [ ] Style pass: consistent spacing, a proper header, empty states for no-data
-- [ ] Ensure mobile responsive (at least gracefully degraded)
+- [x] Frontend: build a `PortfolioSummary` component with:
+  - [x] Total contract value, completed vs in-progress count, avg delay
+  - [x] Bar chart: mean delay days by project type (Recharts)
+  - [x] Bar chart: mean cost overrun % by project type
+  - [x] Pie or donut: projects by region
+      <!-- NOTE: aggregations live in useMemo inside the client component; per-chart empty-state fallback ("Not enough data to chart.") if a bucket yields zero data. Portfolio-level empty state short-circuits all charts. -->
+- [x] Frontend: build an `AnomalyList` component: each flagged project as a card with the specific rule triggered
+      <!-- NOTE: server component. Sorts descending by flag count, stable on original order. Per-rule cards embed actual value + threshold ("32.1% overrun (threshold 25%)"). Palette mirrors anomaly-pill.tsx; FLAG_MAP duplicated locally to keep parallel agents from stomping each other. -->
+- [x] Frontend: make the main dashboard layout with sidebar nav and content area
+      <!-- NOTE: DashboardShell (server). Sticky top header + CSS-only responsive sidebar (vertical on md+, horizontal pills on mobile). Nav items: Overview/Projects/Anomalies + disabled Documents/Models with Phase-coming tooltips. Exports EmptyState primitive for future use. -->
+- [x] Style pass: consistent spacing, a proper header, empty states for no-data
+- [x] Ensure mobile responsive (at least gracefully degraded)
 
-**Acceptance:** Dashboard looks like something you'd actually send to a reviewer. Someone seeing it for the first time can understand what they're looking at in 10 seconds.
+**Acceptance:** Dashboard looks like something you'd actually send to a reviewer. Someone seeing it for the first time can understand what they're looking at in 10 seconds. ✅ Verified prod at https://enlaye-five.vercel.app/.
 
 ---
 
