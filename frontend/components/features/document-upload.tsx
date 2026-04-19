@@ -54,6 +54,31 @@ function makeItemId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// WHY: the Supabase.ai.Session cold-start occasionally returns HTTP 546
+// WORKER_RESOURCE_LIMIT when PDF parsing and embedding model load coincide.
+// Warm workers handle the same payload in ~1s, so 3 attempts with
+// exponential backoff absorbs the cold-start without user-facing failure.
+// Returns null on success, an error message string on exhausted retries.
+// deno-lint-ignore no-explicit-any
+async function invokeEmbedWithRetry(
+  supabase: ReturnType<typeof createBrowserSupabase>,
+  record: Record<string, unknown>,
+): Promise<string | null> {
+  const delays = [0, 1500, 3500];
+  let lastError = "unknown error";
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+    const { error } = await supabase.functions.invoke("embed", {
+      body: { record },
+    });
+    if (!error) return null;
+    lastError = error.message;
+  }
+  return lastError;
+}
+
 export function DocumentUpload({ portfolio_id }: { portfolio_id: string }) {
   const router = useRouter();
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -146,13 +171,17 @@ export function DocumentUpload({ portfolio_id }: { portfolio_id: string }) {
         // actually runs. On success the function has already flipped
         // `embedding_status` to `complete`, so `router.refresh()` below
         // pulls the updated row immediately.
+        // WHY retry: cold starts on the embed Edge Function can hit
+        // WORKER_RESOURCE_LIMIT (PDF parsing + loading gte-small model
+        // weights briefly exceed the worker's memory ceiling). Subsequent
+        // invocations reuse a warm worker and succeed. Three attempts
+        // with exponential backoff absorbs this without surfacing an
+        // error the user would have to manually retry.
         updateItem(id, { stage: "embedding" });
-        const { error: invokeErr } = await supabase.functions.invoke("embed", {
-          body: { record: insertedRow },
-        });
-        if (invokeErr) {
+        const embedErr = await invokeEmbedWithRetry(supabase, insertedRow);
+        if (embedErr) {
           throw new Error(
-            `Embedding failed: ${invokeErr.message}. The file is uploaded; retry from the Documents list.`,
+            `Embedding failed: ${embedErr}. The file is uploaded; retry from the Documents list.`,
           );
         }
 

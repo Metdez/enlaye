@@ -114,10 +114,24 @@ export function DocumentList({
           .update({ embedding_status: "pending", chunk_count: 0 })
           .eq("id", row.id);
 
-        const { error } = await supabase.functions.invoke("embed", {
-          body: { record: row },
-        });
-        if (error) throw new Error(error.message);
+        // WHY retry: same cold-start WORKER_RESOURCE_LIMIT issue the
+        // upload path absorbs — see invokeEmbedWithRetry in document-upload.
+        const delays = [0, 1500, 3500];
+        let lastErr: string | null = null;
+        for (let attempt = 0; attempt < delays.length; attempt++) {
+          if (delays[attempt] > 0) {
+            await new Promise((r) => setTimeout(r, delays[attempt]));
+          }
+          const { error } = await supabase.functions.invoke("embed", {
+            body: { record: row },
+          });
+          if (!error) {
+            lastErr = null;
+            break;
+          }
+          lastErr = error.message;
+        }
+        if (lastErr) throw new Error(lastErr);
 
         toastSuccess(`Re-embedded ${row.filename}`);
         router.refresh();
