@@ -23,6 +23,13 @@ from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
 import cleaning
+from models import (
+    MINIMUM_TRAINING_SAMPLES,
+    InsufficientTrainingData,
+    ModelResult,
+    train_naive_model,
+    train_pre_construction_model,
+)
 
 load_dotenv()
 
@@ -428,10 +435,241 @@ def ingest(
     )
 
 
+# ---------------------------------------------------------------------------
+# /train helpers
+# ---------------------------------------------------------------------------
+
+# WHY: these are the exact columns `cleaning.clean()` writes to `projects`
+# (see cleaning.py § target_cols). We reconstruct the DataFrame for training
+# by selecting the same set from Postgres. Keep in lockstep with cleaning.py.
+_PROJECT_FETCH_COLUMNS: tuple[str, ...] = (
+    "project_id_external",
+    "project_name",
+    "project_type",
+    "contract_value_usd",
+    "start_date",
+    "end_date",
+    "region",
+    "subcontractor_count",
+    "delay_days",
+    "cost_overrun_pct",
+    "safety_incidents",
+    "payment_disputes",
+    "final_status",
+    "actual_duration_days",
+    "anomaly_flags",
+)
+
+
+def _records_to_training_frame(records: list[dict[str, Any]]) -> pd.DataFrame:
+    """Reconstruct the post-cleaning DataFrame shape expected by models.py.
+
+    WHY: Postgres returns ISO date strings for `date` columns and jsonb
+    arrays as Python lists. `cleaning.clean()` left start_date/end_date as
+    pandas Timestamps and `anomaly_flags` as list[str]; the training code
+    was authored against that shape, so we re-hydrate dates here.
+    """
+    df = pd.DataFrame.from_records(records)
+    # Empty frames still need the expected columns so models.py can run its
+    # "insufficient data" check against a real shape instead of KeyError-ing.
+    for col in _PROJECT_FETCH_COLUMNS:
+        if col not in df.columns:
+            df[col] = pd.Series(dtype="object")
+    for col in ("start_date", "end_date"):
+        df[col] = pd.to_datetime(df[col], errors="coerce")
+    return df[list(_PROJECT_FETCH_COLUMNS)]
+
+
+def _model_result_to_insert_row(
+    portfolio_id: str, model_type: str, result: ModelResult
+) -> dict[str, Any]:
+    """Coerce a ModelResult into a `model_runs` insert record.
+
+    WHY: keep the boundary mapping in one place so the column names /
+    Postgres types stay in lockstep with the migration's check constraint
+    and jsonb/text[] columns.
+    """
+    return {
+        "portfolio_id": portfolio_id,
+        "model_type": model_type,
+        "accuracy": float(result["accuracy"]),
+        "feature_importances": dict(result["feature_importances"]),
+        "features_used": list(result["features_used"]),
+        "n_training_samples": int(result["n_training_samples"]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# /train
+# ---------------------------------------------------------------------------
+
+# WHY: /train is the *showcase* of the Enlaye assessment. It deliberately
+# trains two models on the same data:
+#   - `naive`: uses every numeric feature, including post-construction
+#     outcomes like `delay_days`, `cost_overrun_pct`, `safety_incidents`,
+#     `actual_duration_days`. These leak the label — a "disputed" project
+#     is almost definitionally one that ran late or over budget — and the
+#     naive model will look great in-sample while being useless for the
+#     one thing the user actually wants (pre-construction risk scoring).
+#   - `pre_construction`: restricted to features known BEFORE a shovel
+#     hits dirt — contract value, region, project_type, subcontractor_count,
+#     etc. Honest signal, lower accuracy, the model a real risk analyst
+#     would deploy.
+# The side-by-side comparison is the point. See CLAUDE.md § Critical
+# Non-Negotiables #4 — do NOT merge these into a single model.
+#
+# Idempotency: like /ingest, we delete any prior model_runs rows for this
+# portfolio before inserting, so re-calling /train gives exactly two rows
+# (one per model_type). Prior rows are snapshotted first for best-effort
+# restore on write failure — same pattern as the /ingest metadata rollback.
+
+
 @app.post("/train", response_model=TrainResponse)
 def train(
     req: TrainRequest,
     _: Annotated[None, Depends(require_internal_token)],
 ) -> TrainResponse:
-    # TODO(claude): Phase 3 — train naive + pre_construction models, write to model_runs.
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "train not implemented yet")
+    """Train naive + pre_construction dispute models, persist to model_runs."""
+    client = get_supabase()
+    portfolio_id = req.portfolio_id
+
+    logger.info("train.start portfolio_id=%s", portfolio_id)
+
+    # ---- 1. Portfolio must exist ----
+    portfolio_row = (
+        client.table("portfolios").select("id").eq("id", portfolio_id).limit(1).execute()
+    )
+    if not portfolio_row.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "portfolio not found", "portfolio_id": portfolio_id},
+        )
+
+    # ---- 2. Fetch projects rows ----
+    projects_resp = (
+        client.table("projects")
+        .select(",".join(_PROJECT_FETCH_COLUMNS))
+        .eq("portfolio_id", portfolio_id)
+        .execute()
+    )
+    records: list[dict[str, Any]] = list(projects_resp.data or [])
+
+    # ---- 3. Reconstruct DataFrame shape models.py expects ----
+    df = _records_to_training_frame(records)
+
+    # ---- 4. Train both models ----
+    # WHY: naive first so a catastrophic failure there doesn't leave the
+    # user with a half-populated model_runs table after we've already
+    # written the pre_construction row.
+    try:
+        naive_result = train_naive_model(df)
+        pre_construction_result = train_pre_construction_model(df)
+    except InsufficientTrainingData as exc:
+        logger.info(
+            "train.insufficient_data portfolio_id=%s n_completed=%d",
+            portfolio_id,
+            exc.n_completed_projects,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "insufficient training data",
+                "n_completed_projects": exc.n_completed_projects,
+                "minimum_required": MINIMUM_TRAINING_SAMPLES,
+            },
+        ) from exc
+
+    # ---- 5. Persist: snapshot, delete prior runs, insert two rows ----
+    # WHY: supabase-py has no transaction API over REST, so the same
+    # snapshot-and-rollback pattern /ingest uses is our best-effort guard
+    # against partial writes. model_runs is small (2 rows per portfolio)
+    # so snapshotting is effectively free.
+    snapshot_resp = (
+        client.table("model_runs")
+        .select(
+            "portfolio_id, model_type, accuracy, feature_importances, "
+            "features_used, n_training_samples"
+        )
+        .eq("portfolio_id", portfolio_id)
+        .execute()
+    )
+    snapshot_rows: list[dict[str, Any]] = list(snapshot_resp.data or [])
+
+    insert_rows = [
+        _model_result_to_insert_row(portfolio_id, "naive", naive_result),
+        _model_result_to_insert_row(
+            portfolio_id, "pre_construction", pre_construction_result
+        ),
+    ]
+
+    try:
+        client.table("model_runs").delete().eq("portfolio_id", portfolio_id).execute()
+        client.table("model_runs").insert(insert_rows).execute()
+    except Exception:  # noqa: BLE001 — any DB failure during write
+        logger.exception(
+            "train.write_failed portfolio_id=%s — attempting rollback",
+            portfolio_id,
+        )
+        if snapshot_rows:
+            try:
+                # Best-effort: re-insert the prior rows so the UI doesn't
+                # see an empty model_runs for this portfolio. Re-inserts
+                # get fresh `id`/`created_at` — acceptable for recovery.
+                client.table("model_runs").insert(snapshot_rows).execute()
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "train.rollback_failed portfolio_id=%s", portfolio_id
+                )
+        raise
+
+    # ---- 6. Read back the inserted rows to get Postgres-generated ids ----
+    # WHY: we can't trust the insert response shape across supabase-py
+    # versions for ordering, so fetch explicitly and key by model_type.
+    readback = (
+        client.table("model_runs")
+        .select("id, model_type")
+        .eq("portfolio_id", portfolio_id)
+        .execute()
+    )
+    by_type: dict[str, str] = {
+        row["model_type"]: row["id"] for row in (readback.data or [])
+    }
+    if "naive" not in by_type or "pre_construction" not in by_type:
+        # Shouldn't happen — we just inserted both — but fail loudly if so.
+        logger.error(
+            "train.readback_missing portfolio_id=%s found=%s",
+            portfolio_id,
+            list(by_type),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "failed to read back inserted model_runs"},
+        )
+
+    logger.info(
+        "train.done portfolio_id=%s naive_acc=%.3f pre_construction_acc=%.3f "
+        "n_samples=%d",
+        portfolio_id,
+        float(naive_result["accuracy"]),
+        float(pre_construction_result["accuracy"]),
+        int(naive_result["n_training_samples"]),
+    )
+
+    return TrainResponse(
+        naive=ModelRunResult(
+            model_run_id=by_type["naive"],
+            accuracy=float(naive_result["accuracy"]),
+            features_used=list(naive_result["features_used"]),
+            feature_importances=dict(naive_result["feature_importances"]),
+            n_training_samples=int(naive_result["n_training_samples"]),
+        ),
+        pre_construction=ModelRunResult(
+            model_run_id=by_type["pre_construction"],
+            accuracy=float(pre_construction_result["accuracy"]),
+            features_used=list(pre_construction_result["features_used"]),
+            feature_importances=dict(
+                pre_construction_result["feature_importances"]
+            ),
+            n_training_samples=int(pre_construction_result["n_training_samples"]),
+        ),
+    )

@@ -351,7 +351,16 @@ Returns `200 OK` with `{ status: "ok", version: string }`. For Railway health ch
 }
 
 // Response (400) if insufficient training data
-{ error: string; n_completed_projects: number; minimum_required: number; }
+// NOTE: FastAPI wraps HTTPException(detail=...) as `{"detail": ...}`;
+// this service deliberately passes a structured object so clients can
+// branch on `detail.error`. /ingest uses the same wrapping convention.
+{
+  detail: {
+    error: "insufficient training data";
+    n_completed_projects: number;
+    minimum_required: number;
+  };
+}
 ```
 
 ### Supabase Edge Function: `query`
@@ -430,6 +439,7 @@ Three services, one repo. All config is environment-variable driven. **All infra
 
 Every time ARCHITECTURE.md changes, add an entry here. Date, change, reason.
 
+- **2026-04-18** — Phase 4 (two-model comparison, the showcase) landed. New `ml-service/models.py` exposes `train_naive_model` and `train_pre_construction_model` over a shared `_train` helper — both return a `ModelResult` TypedDict `{accuracy, features_used, feature_importances, n_training_samples}`. Target: `payment_disputes >= 1` on completed rows; encoding via `pd.get_dummies(drop_first=False, dtype=float)`; model is `LogisticRegression(max_iter=1000, random_state=42)` with no CV (9-row dataset). `InsufficientTrainingData` raised below `MINIMUM_TRAINING_SAMPLES=5`; single-class target short-circuits to `accuracy=1.0, feature_importances={}`. `/train` endpoint in `ml-service/main.py` rebuilds the cleaned DataFrame from Postgres rows (date re-coercion), calls both trainers, catches `InsufficientTrainingData → 400 { error, n_completed_projects, minimum_required }`, persists two `model_runs` rows via snapshot + delete-then-insert with rollback, and returns `TrainResponse` with Postgres-generated UUIDs. Full ML test suite at 35 passing (9 cleaning + 12 ingest + 8 models + 6 train). Frontend adds `ModelComparison` (client — two-card side-by-side with red-accented naive column, emerald pre_construction column, horizontal Recharts bars with per-row Cell fill highlighting leaky features, "Why two models?" footer) and `TrainModelsButton` (client — `AbortController`-gated POST with FastAPI-detail error extraction, `router.refresh()` on success). `app/portfolios/[id]/page.tsx` fetches `model_runs` in parallel with portfolio + projects, gates the train button at `completedCount >= 5`, and adds a `#models` section. `dashboard-shell.tsx` re-enables the Models nav item.
 - **2026-04-18** — Phase 3 (Summary Dashboard) landed. Three new frontend components: `portfolio-summary.tsx` (client — stat tiles + Recharts bar charts for mean delay / mean cost overrun by project type + Recharts donut for projects by region, with per-chart empty-state fallbacks and null/NaN guards on every aggregation), `anomaly-list.tsx` (server — flagged-project cards with per-rule descriptions embedding actual row values and thresholds), `dashboard-shell.tsx` (server — sticky top header + CSS-only responsive sidebar with Overview/Projects/Anomalies hash-anchor nav, disabled Documents/Models items teasing Phase 4+/5, plus reusable `EmptyState` primitive). `app/portfolios/[id]/page.tsx` now wraps content in `DashboardShell` with `#overview` / `#projects` / `#anomalies` section anchors. Codex adversarial review returned no blocking issues but three MEDIUMs applied: threshold copy now reads `> 25%` / `> 150 days` (matches strict-inequality semantics in `ml-service/cleaning.py` ANOMALY_RULES), donut palette expanded from 6 to 10 colors, bar-chart x-axis labels rotated -20° with `interval={0}` to prevent overlap on long `project_type` strings.
 - **2026-04-18** — Phase 2 landed. Added `portfolios-uploads` Storage bucket (private, 10 MB, CSV/Excel/octet-stream MIME). Added anon RLS policies on `storage.objects` scoped to `portfolios/*` within that bucket (demo mode only — multi-user build must replace with server-minted signed URLs or `auth.uid()`-scoped policies). `/ingest` endpoint now live: downloads CSV from Storage, runs `cleaning.py` pipeline (type coercion → median imputation from completed-only rows → anomaly flagging on four thresholds), delete-then-insert into `projects` with snapshot-based metadata rollback on failure. `storage_path` is pinned to `portfolios/<portfolio_id>/raw.csv` to prevent cross-portfolio ingest. Frontend adds upload UI + `/portfolios/[id]` dashboard. `lib/supabase.ts` split into server-only module + `lib/supabase-browser.ts` for client imports.
 - **2026-04-18** — Deployment topology updated: all infrastructure (Supabase, Vercel, Railway, GitHub) is now CLI-driven; LLM model swapped from `minimax/minimax-m2.5:free` to `deepseek/deepseek-v3.2`.

@@ -1,19 +1,28 @@
-// Portfolio detail page — dashboard shell + overview + projects + anomalies.
+// Portfolio detail page — dashboard shell + overview + projects + anomalies + models.
 // WHY: server component so the initial load is SSR'd with no client-side
 // data fetching dance. Interactivity is scoped to client leaves (cleaning
-// report panel, Recharts summary), not the page shell. Sections are anchored
-// with #overview / #projects / #anomalies so the sidebar nav can jump to them.
+// report panel, Recharts summary, train button, model comparison). Sections
+// are anchored with #overview / #projects / #anomalies / #models so the
+// sidebar nav can jump to them.
 
 import { notFound } from "next/navigation";
 import { createServerSupabase } from "@/lib/supabase";
-import type { Portfolio, ProjectRow } from "@/lib/types";
+import type { ModelRun, Portfolio, ProjectRow } from "@/lib/types";
 import { CleaningReportPanel } from "@/components/cleaning-report-panel";
 import { ProjectsTable } from "@/components/projects-table";
 import { PortfolioSummary } from "@/components/portfolio-summary";
 import { AnomalyList } from "@/components/anomaly-list";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { ModelComparison } from "@/components/model-comparison";
+import { TrainModelsButton } from "@/components/train-models-button";
 
 export const dynamic = "force-dynamic";
+
+// WHY: must match MINIMUM_TRAINING_SAMPLES in ml-service/models.py. Keeping
+// this as a local constant here (rather than importing) so the SSR bundle
+// doesn't drag in Python-flavoured deps. If the Python side changes, this
+// grep target will surface it in code review.
+const MINIMUM_TRAINING_SAMPLES = 5;
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -36,9 +45,10 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
   const { id } = await params;
   const supabase = await createServerSupabase();
 
-  // WHY: fetch in parallel — the projects query does not depend on the
-  // portfolio existing, and we want both before deciding to render.
-  const [portfolioResult, projectsResult] = await Promise.all([
+  // WHY: fetch in parallel — the projects and model_runs queries do not
+  // depend on the portfolio existing, and we want all three before
+  // deciding how to render.
+  const [portfolioResult, projectsResult, modelRunsResult] = await Promise.all([
     supabase
       .from("portfolios")
       .select("id, name, row_count, anomaly_count, cleaning_report, created_at")
@@ -51,6 +61,13 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
       )
       .eq("portfolio_id", id)
       .order("project_id_external", { ascending: true }),
+    supabase
+      .from("model_runs")
+      .select(
+        "id, portfolio_id, model_type, accuracy, feature_importances, features_used, n_training_samples, created_at",
+      )
+      .eq("portfolio_id", id)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (portfolioResult.error) {
@@ -65,12 +82,25 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
       `Failed to load projects: ${projectsResult.error.message}`,
     );
   }
+  if (modelRunsResult.error) {
+    throw new Error(
+      `Failed to load model runs: ${modelRunsResult.error.message}`,
+    );
+  }
   if (!portfolioResult.data) {
     notFound();
   }
 
   const portfolio = portfolioResult.data as Portfolio;
   const projects = (projectsResult.data ?? []) as ProjectRow[];
+  const modelRuns = (modelRunsResult.data ?? []) as ModelRun[];
+
+  // WHY: the training endpoint refuses below MINIMUM_TRAINING_SAMPLES,
+  // so pre-emptively disable the button to spare the user a 400 round-trip.
+  const completedCount = projects.filter(
+    (p) => p.final_status === "Completed",
+  ).length;
+  const canTrain = completedCount >= MINIMUM_TRAINING_SAMPLES;
 
   return (
     <DashboardShell portfolio={portfolio}>
@@ -114,6 +144,24 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
             Anomalies
           </h2>
           <AnomalyList projects={projects} />
+        </section>
+
+        <section id="models" className="scroll-mt-20 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+              Models
+            </h2>
+            <div className="flex items-center gap-3">
+              {!canTrain ? (
+                <p className="text-xs text-zinc-500">
+                  Need at least {MINIMUM_TRAINING_SAMPLES} completed projects to
+                  train ({completedCount} available).
+                </p>
+              ) : null}
+              <TrainModelsButton portfolioId={portfolio.id} disabled={!canTrain} />
+            </div>
+          </div>
+          <ModelComparison runs={modelRuns} />
         </section>
       </div>
     </DashboardShell>

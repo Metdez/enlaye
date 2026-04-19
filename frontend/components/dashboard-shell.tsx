@@ -41,13 +41,7 @@ const NAV_ITEMS: NavItem[] = [
     disabled: true,
     disabledTooltip: "Coming in Phase 5",
   },
-  {
-    label: "Models",
-    href: "#models",
-    icon: Sparkles,
-    disabled: true,
-    disabledTooltip: "Coming in Phase 4",
-  },
+  { label: "Models", href: "#models", icon: Sparkles },
 ];
 
 // WHY: small presentational component rather than inlining the ternary twice.

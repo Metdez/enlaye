@@ -229,6 +229,29 @@ Every Claude Code session appends an entry here before handing control back. Kee
   - Mobile sidebar is CSS-only dual-DOM (both variants rendered, one hidden). Acceptable for 5 nav items; if the list grows we should switch to a client-side disclosure.
   - Hash anchors use plain `<a>`, not `<Link>` — `next/link` is for route transitions, not same-page jumps. Documented in `dashboard-shell.tsx`.
 
+### 2026-04-18 — Session 5 — Phase 4 two-model comparison (4-way parallel dispatch)
+- **Did:**
+  - Ran Phase 4 via **four** parallel implementer agents on fully disjoint file trees: (1) `ml-service/models.py` + tests, (2) `/train` endpoint wiring in `ml-service/main.py` + tests, (3) `frontend/components/model-comparison.tsx`, (4) `frontend/components/train-models-button.tsx`. Controller pinned the public API of `models.py` upfront so agent (2) could trust the contract without serializing on (1).
+  - **models.py**: `train_naive_model` + `train_pre_construction_model` on top of a private `_train` helper. Target `y = (payment_disputes >= 1).astype(int)` on completed rows only. Encoding via `pd.get_dummies(drop_first=False, dtype=float)`. Model: `LogisticRegression(max_iter=1000, random_state=42)`. No CV / no train-test split — reported training accuracy (9 completed rows in demo; CV would be theater). Single-class target returns `accuracy=1.0, feature_importances={}`. `InsufficientTrainingData` raised below `MINIMUM_TRAINING_SAMPLES=5`. 8 pytests.
+  - **/train**: fetches projects, reconstructs DataFrame with date re-coercion, calls both trainers, catches `InsufficientTrainingData → 400 { error, n_completed_projects, minimum_required }`. Idempotent snapshot + delete-then-insert into `model_runs` with rollback on failure (same pattern as `/ingest`). Reads back Postgres-generated UUIDs, returns `TrainResponse`. 6 pytests.
+  - **ModelComparison**: client component, two cards side-by-side (red accent naive / emerald pre_construction), accuracy at `text-4xl`, horizontal Recharts bars with per-Cell fill (red for leaky features in naive, blue otherwise; emerald across the board for pre_construction). `formatFeatureName` normalises encoded names to human strings. Explanatory "Why two models?" footer. Empty-state when `runs` missing either model_type; picks most recent by `created_at` if duplicates exist.
+  - **TrainModelsButton**: client component, `AbortController`-gated fetch, FastAPI-detail-aware error extraction mapped to user-friendly messages, `router.refresh()` on success, re-entrancy guarded.
+  - **Integration**: `app/portfolios/[id]/page.tsx` adds a parallel `model_runs` fetch, `#models` section with button + comparison, `canTrain` gate at `completedCount >= 5` (local constant comment-linked to `models.py`). Enabled the `Models` nav item in `dashboard-shell.tsx` (was disabled-with-tooltip during Phase 3).
+  - **Verified**: frontend typecheck clean, `npm run build` clean, full ML suite `35/35 passed` (9 cleaning + 12 ingest + 8 models + 6 train). Deployed Railway (`railway up --detach`) + Vercel (`vercel --prod`). `https://ml-service-production-513e.up.railway.app/health` → 200, `https://enlaye-five.vercel.app/` → 200.
+  - **Codex:rescue** review (codex exec --effort high): returned "No blocking issues found." (no CRITICAL/HIGH). Two MEDIUMs and three LOWs triaged:
+    - MEDIUM — `/train` concurrency race (two simultaneous POSTs can leave 4 rows / return the wrong UUID). Accepted as-is for single-user demo; hardening plan documented (add `UNIQUE(portfolio_id, model_type)` constraint + Postgres RPC for transactional delete+insert when we go multi-user).
+    - MEDIUM — `/train` 400 body contract drift: `ARCHITECTURE.md § /train` documented a top-level `{ error, n_completed_projects, minimum_required }`, but FastAPI's `HTTPException(detail={...})` wraps as `{"detail": {...}}` — same pattern `/ingest` already uses. **Docs now match the wire** (updated ARCHITECTURE.md to the actual `{detail: {...}}` shape and noted the convention).
+    - LOW — `ModelComparison` rendered partial `model_runs` state as the generic "no runs yet" empty-state. **Fixed:** distinct copy when exactly one model_type is present ("Only the naive model has a recorded run; pre-construction is missing. Click Train Models to rebuild the comparison.").
+    - LOW — `MINIMUM_TRAINING_SAMPLES` is duplicated between `ml-service/models.py` and `frontend/app/portfolios/[id]/page.tsx`. Already commented in the code; not fixing until a shared-constants module is worth it (Phase 6 or multi-user).
+    - LOW — `extractTrainError` in `TrainModelsButton` only special-cased FastAPI's `{detail: ...}` shape; proxy-level errors (`/api/ml/[...path]` returns top-level `{error}` for bad bearer / ML unreachable) fell back to the generic "Training failed: 502". **Fixed:** helper now also handles the proxy's `{error, detail?}` shape.
+  - Codex fixes landed in a single follow-up commit on top of the Phase 4 feature commit.
+- **Changed:** `IMPLEMENTATION.md` (Phase 4 checkboxes + notes), `ARCHITECTURE.md` (changelog below), this file.
+- **Next:** Phase 5 (RAG), or Phase 6 polish (README with screenshot/GIF, empty/error states across every surface, submit).
+- **Notes:**
+  - Four-way parallel worked cleanly — the ~5-minute wall-clock was gated by the slowest agent (the `/train` integration agent, which had to wait for `models.py` to land to run its test suite). Contract-first dispatch meant zero interface drift; the only touch-up was the integration page.
+  - `MINIMUM_TRAINING_SAMPLES` is duplicated across `ml-service/models.py` and `frontend/app/portfolios/[id]/page.tsx` (local const with a comment pointing at the Python source). Shared-constant import via a generated types file would be cleaner — deferred.
+  - Recharts `<Cell>` is marked deprecated in Recharts 3's `.d.ts` but still works. Noted; no action.
+
 <!-- New sessions append above this line, below the Session 0 entry -->
 
 ---

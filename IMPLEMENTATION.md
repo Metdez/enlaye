@@ -120,23 +120,29 @@ Goal: the portfolio overview looks like a real dashboard, not a debug view.
 
 Goal: the feature that turns this from "dashboard" into "you understood the assessment."
 
-- [ ] ML service: implement `cleaning.py` helpers for categorical encoding (one-hot for project_type and region)
-- [ ] ML service: implement `models.py`:
-  - [ ] `train_naive_model(df)` — uses all numeric + encoded categoricals from completed projects
-  - [ ] `train_pre_construction_model(df)` — uses ONLY [project_type, contract_value_usd, region, subcontractor_count]
-  - [ ] Both return `{accuracy, features_used, feature_importances}`
-  - [ ] Use logistic regression (not decision tree — more interpretable for the tiny dataset)
-- [ ] ML service: implement `/train` endpoint, write both results to `model_runs`
-- [ ] Frontend: add "Train Models" button on dashboard
-- [ ] Frontend: build `ModelComparison` component side-by-side layout:
-  - [ ] Left column: "Naive model" with leaky features highlighted in red
-  - [ ] Right column: "Pre-construction model" with only bid-time features
-  - [ ] Accuracy shown prominently in each
-  - [ ] Feature importance bars (horizontal, Recharts)
-  - [ ] Explanatory copy: "The left model would be 100% accurate on training data, but couldn't be used before a project starts because it uses features like delay_days that only exist after the fact. The right model uses only information you'd have at bid time."
-- [ ] Ensure features_used text and the UI match — no divergence
+- [x] ML service: implement `cleaning.py` helpers for categorical encoding (one-hot for project_type and region)
+      <!-- NOTE: one-hot encoding lives in `models.py` (via `pd.get_dummies`) rather than `cleaning.py`. Rationale: cleaning is DB-insert-shaped (columns match `projects` schema), whereas encoding is model-frame-shaped. Separating them keeps cleaning deterministic and schema-faithful. -->
+- [x] ML service: implement `models.py`:
+  - [x] `train_naive_model(df)` — uses all numeric + encoded categoricals from completed projects
+  - [x] `train_pre_construction_model(df)` — uses ONLY [project_type, contract_value_usd, region, subcontractor_count]
+  - [x] Both return `{accuracy, features_used, feature_importances}` (plus `n_training_samples`, per API contract)
+  - [x] Use logistic regression (not decision tree — more interpretable for the tiny dataset)
+      <!-- NOTE: `LogisticRegression(max_iter=1000, random_state=42)`. No train/test split and no CV — 9 completed rows in the demo; CV would be theater. Training accuracy is reported and flagged as such in the UI. `InsufficientTrainingData` raised below MINIMUM_TRAINING_SAMPLES=5. Single-class target → accuracy=1.0, feature_importances={}, no fit. 8 pytests. -->
+- [x] ML service: implement `/train` endpoint, write both results to `model_runs`
+      <!-- NOTE: fetches completed+in-progress rows, reconstructs DataFrame shape (re-coerces dates), calls both training fns, catches InsufficientTrainingData → 400 with `n_completed_projects` + `minimum_required`. Snapshot + delete-then-insert with rollback (same pattern as /ingest). Reads back generated UUIDs and returns per TrainResponse contract. 6 pytests. -->
+- [x] Frontend: add "Train Models" button on dashboard
+      <!-- NOTE: `TrainModelsButton` (client) — POSTs to `/api/ml/train`, FastAPI-detail-aware error extraction, `router.refresh()` on success, `AbortController` cancels on unmount, double-click guarded. Disabled by parent when `completedCount < 5` (pre-empts server's 400 round-trip). -->
+- [x] Frontend: build `ModelComparison` component side-by-side layout:
+  - [x] Left column: "Naive model" with leaky features highlighted in red
+  - [x] Right column: "Pre-construction model" with only bid-time features
+  - [x] Accuracy shown prominently in each
+  - [x] Feature importance bars (horizontal, Recharts)
+  - [x] Explanatory copy: "The left model would be 100% accurate on training data, but couldn't be used before a project starts because it uses features like delay_days that only exist after the fact. The right model uses only information you'd have at bid time."
+      <!-- NOTE: copy was rewritten tighter than the spec — see the "Why two models?" block in `model-comparison.tsx`. Leaky features detected by `LEAKY_FEATURE_STEMS.has(name)` (the leaky four are all numeric, not OHE'd). -->
+- [x] Ensure features_used text and the UI match — no divergence
+      <!-- NOTE: `formatFeatureName()` in `model-comparison.tsx` converts encoded `project_type_Commercial` → "Type: Commercial", `region_Northeast` → "Region: Northeast", etc. The raw strings in the DB are untouched — the display helper is the only place formatting happens. -->
 
-**Acceptance:** Clicking "Train Models" produces the two-model comparison. The leakage narrative is clear to someone who doesn't know ML. The UI physically shows why the right model is the useful one.
+**Acceptance:** Clicking "Train Models" produces the two-model comparison. The leakage narrative is clear to someone who doesn't know ML. The UI physically shows why the right model is the useful one. ✅ Verified prod at https://enlaye-five.vercel.app/.
 
 **This is the single most important feature in the app.** If it works and is clear, you've made your case.
 
