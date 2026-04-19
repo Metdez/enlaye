@@ -430,6 +430,7 @@ Three services, one repo. All config is environment-variable driven. **All infra
 
 Every time ARCHITECTURE.md changes, add an entry here. Date, change, reason.
 
+- **2026-04-18** — Phase 2 landed. Added `portfolios-uploads` Storage bucket (private, 10 MB, CSV/Excel/octet-stream MIME). Added anon RLS policies on `storage.objects` scoped to `portfolios/*` within that bucket (demo mode only — multi-user build must replace with server-minted signed URLs or `auth.uid()`-scoped policies). `/ingest` endpoint now live: downloads CSV from Storage, runs `cleaning.py` pipeline (type coercion → median imputation from completed-only rows → anomaly flagging on four thresholds), delete-then-insert into `projects` with snapshot-based metadata rollback on failure. `storage_path` is pinned to `portfolios/<portfolio_id>/raw.csv` to prevent cross-portfolio ingest. Frontend adds upload UI + `/portfolios/[id]` dashboard. `lib/supabase.ts` split into server-only module + `lib/supabase-browser.ts` for client imports.
 - **2026-04-18** — Deployment topology updated: all infrastructure (Supabase, Vercel, Railway, GitHub) is now CLI-driven; LLM model swapped from `minimax/minimax-m2.5:free` to `deepseek/deepseek-v3.2`.
 - **2026-04-18** — Initial architecture document created.
 

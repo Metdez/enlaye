@@ -198,6 +198,21 @@ Every Claude Code session appends an entry here before handing control back. Kee
   - Supabase Python SDK call shape differs from JS — watch for that in Phase 2.
   - IVFFlat index logs a "little data" NOTICE at migration time; expected for an empty table.
 
+### 2026-04-18 — Session 3 — Phase 2 CSV ingest (subagent-driven, parallel tracks B+C)
+- **Did:**
+  - Ran Phase 2 via subagent-driven development: implementer → spec reviewer → quality reviewer → controller commit, one cycle per task. Task A (cleaning + bucket migration) ran sequentially; Tasks B (`/ingest` endpoint) and C (frontend upload + dashboard) ran in parallel on the same `main` branch since they touch disjoint file trees (`ml-service/*` vs `frontend/**`).
+  - **Task A** — `ml-service/cleaning.py` (pure functions: parse → coerce → median-impute completed-only → flag anomalies), migration `20260418222808_portfolios_uploads_bucket.sql` creating private bucket with 10 MB cap, 9 pytests.
+  - **Task B** — `/ingest` in `ml-service/main.py` with delete-then-insert idempotency, `_canonical_storage_path` (blocks traversal + cross-portfolio), `_df_to_records` (NaT/NaN→None, ISO dates, nullable-Int64 safe). 12 pytests. Broadened exception mapping catches `pd.errors.ParserError` / `EmptyDataError` / `UnicodeDecodeError` → 400.
+  - **Task C** — `app/page.tsx` rewritten as upload surface with react-dropzone + "Load demo data" button, `app/portfolios/[id]/page.tsx` dashboard (server component), components `csv-upload`, `projects-table`, `cleaning-report-panel`, `anomaly-pill`. Split `lib/supabase.ts` into server module + new `lib/supabase-browser.ts` so client components don't pull in `next/headers`.
+  - **Codex adversarial review** caught 1 CRITICAL + 3 HIGH + 1 MEDIUM post-review: storage bucket had zero RLS policies (anon upload would fail in prod — tests masked it with service_role); `/ingest` trusted any `storage_path` for any `portfolio_id`; delete/insert/update wasn't atomic; pandas non-ValueError exceptions became 500s. Fixed with migration `20260419030649_storage_policies_anon_demo.sql` (anon INSERT/SELECT/DELETE scoped to `portfolios/*` within the bucket), canonical-path enforcement, snapshot-based metadata rollback, and broadened exception handling. Anon-scope verified via live test: insert portfolio ✓, upload within prefix ✓, upload outside prefix blocked ✓.
+  - **Cloud deploy**: pushed 2 migrations to `papbpbuayuorqzbvwrnb`, re-deployed Railway ml-service via `railway up`, redeployed Vercel via `vercel --prod`. End-to-end smoke passed: frontend 200, `/api/ml/health` → 200 `{db_reachable:true}`, proxy allowlist still blocks `/docs` + `/openapi.json`.
+- **Changed:** `ARCHITECTURE.md` (changelog entry below), `IMPLEMENTATION.md` (Phase 2 checkboxes + gotcha notes), this file.
+- **Next:** Phase 3 (summary dashboard — Recharts bars, portfolio summary component, style pass) or Phase 4 (two-model comparison). The two-model comparison is the higher-leverage showcase; Phase 3 can be bundled with polish in Phase 6.
+- **Notes:**
+  - `supabase-py` 2.9 differences from JS SDK keep catching us: `head=True` not accepted on `.select()` (Phase 1), and no transaction wrapper for multi-statement mutations (Phase 2 — worked around with snapshot rollback). A Postgres RPC function that wraps delete+insert+update in one transaction is the correct long-term fix; deferred until multi-user.
+  - Subagent-driven development + Codex review gave genuinely different lenses: internal reviewers caught style + missing tests; Codex caught the RLS gap and the cross-ingest vulnerability that internal reviewers had already implicitly green-lit.
+  - Railway was not GH-linked (per Phase 1), so deploys still require `railway up` from CLI. Vercel could be GH-linked later for auto-deploy on push.
+
 <!-- New sessions append above this line, below the Session 0 entry -->
 
 ---

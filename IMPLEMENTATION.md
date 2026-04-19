@@ -73,19 +73,23 @@ Goal: the three runtimes can talk to each other and to the database. Still no us
 
 Goal: a user can upload the assessment CSV and see the 15 rows in a table. Cleaning happens, anomalies are flagged, but nothing is pretty yet.
 
-- [ ] ML service: implement CSV parsing and type coercion in `cleaning.py`
-- [ ] ML service: implement median imputation (completed-only) with inline `WHY` comment
-- [ ] ML service: implement anomaly flagging per Task 1c spec (cost_overrun > 25, delay > 150, safety >= 5, disputes >= 5)
-- [ ] ML service: implement `/ingest` endpoint per ARCHITECTURE.md § API Contracts
-- [ ] ML service: write a quick pytest for cleaning on the 15-row sample
-- [ ] Frontend: build upload page at `/` with react-dropzone
-- [ ] Frontend: on drop, upload to Supabase Storage then call `/api/ml/ingest`
-- [ ] Frontend: create `/portfolios/[id]` page that renders projects in a table
-- [ ] Frontend: show anomaly flags as colored pill badges in the table
-- [ ] Frontend: show cleaning_report as a collapsible panel ("15 rows loaded, 3 values imputed, 5 anomalies flagged")
-- [ ] Add the assessment's 15-row CSV as a demo dataset accessible via a "Load Demo Data" button
+- [x] ML service: implement CSV parsing and type coercion in `cleaning.py`
+- [x] ML service: implement median imputation (completed-only) with inline `WHY` comment
+      <!-- NOTE: safety_incidents / payment_disputes are NOT imputed on in-progress rows — outcome signals don't exist until the project is done. -->
+- [x] ML service: implement anomaly flagging per Task 1c spec (cost_overrun > 25, delay > 150, safety >= 5, disputes >= 5)
+- [x] ML service: implement `/ingest` endpoint per ARCHITECTURE.md § API Contracts
+      <!-- NOTE: canonical storage_path enforcement (`portfolios/<portfolio_id>/raw.csv`) added after Codex review caught cross-ingest risk. Snapshot-based metadata recovery wraps the non-atomic delete/insert/update trio; proper Postgres RPC transaction deferred to multi-user phase. -->
+- [x] ML service: write a quick pytest for cleaning on the 15-row sample
+      <!-- NOTE: 21 tests total (9 cleaning + 12 ingest), all passing against local Supabase. -->
+- [x] Frontend: build upload page at `/` with react-dropzone
+- [x] Frontend: on drop, upload to Supabase Storage then call `/api/ml/ingest`
+      <!-- NOTE: `lib/supabase.ts` split into server + `lib/supabase-browser.ts` — the original re-export dragged `next/headers` into client bundles. -->
+- [x] Frontend: create `/portfolios/[id]` page that renders projects in a table
+- [x] Frontend: show anomaly flags as colored pill badges in the table
+- [x] Frontend: show cleaning_report as a collapsible panel ("15 rows loaded, 3 values imputed, 5 anomalies flagged")
+- [x] Add the assessment's 15-row CSV as a demo dataset accessible via a "Load Demo Data" button
 
-**Acceptance:** Upload the assessment CSV, land on a dashboard page, see 15 rows with proper types, anomaly flags visible, cleaning transparency visible.
+**Acceptance:** Upload the assessment CSV, land on a dashboard page, see 15 rows with proper types, anomaly flags visible, cleaning transparency visible. ✅ Verified prod at https://enlaye-five.vercel.app/.
 
 **This is the MVP stopping point.** If time runs out, everything from here down can be cut and you still have something legitimate.
 
