@@ -1,141 +1,227 @@
-// Landing page — upload surface + recent portfolios list.
-// WHY: server component wrapper keeps the recent-portfolios fetch on the
-// server (fast, no client JS for the list). Interactive upload lives in the
-// [CsvUpload](../components/csv-upload.tsx) client component, which is
-// dynamically imported below so react-dropzone is not in the initial JS
-// payload — it loads in parallel after the server-rendered HTML hydrates.
+// Landing page — hero + upload + how-it-works + product pillars +
+// architecture diagram + tech stack + known limits + recent portfolios.
+// WHY: server component; fetches recent portfolios on the server so the list
+// is part of the initial HTML. CsvUpload is a client leaf that handles the
+// interactive upload/demo flow and redirects to `/portfolios/[id]` when done.
+// Marketing sections are static server components to keep the client bundle
+// lean — nothing on this page except CsvUpload ships JavaScript.
 
+import type { ReactElement } from "react";
 import Link from "next/link";
-import nextDynamic from "next/dynamic";
+import {
+  ArrowRight,
+  BarChart3,
+  GitBranch,
+  MessageSquare,
+  Sparkles,
+  Upload,
+} from "lucide-react";
+
+import { CsvUpload } from "@/components/features/csv-upload";
+import { RecentPortfolios } from "@/components/features/recent-portfolios";
+import { ArchitectureDiagram } from "@/components/marketing/architecture-diagram";
+import { KnownLimits } from "@/components/marketing/known-limits";
+import { ProductPillars } from "@/components/marketing/product-pillars";
+import { TechStackGrid } from "@/components/marketing/tech-stack-grid";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { createServerSupabase } from "@/lib/supabase";
 import type { Portfolio } from "@/lib/types";
 
-// WHY: dynamic import keeps react-dropzone (~30 kB gz) out of the entry
-// chunk. The dropzone is the page's primary CTA but renders fine without
-// JS until the user interacts; ssr:true preserves the server-rendered
-// markup for users on slow connections / no-JS readers.
-const CsvUpload = nextDynamic(
-  () => import("@/components/csv-upload").then((m) => m.CsvUpload),
-  {
-    ssr: true,
-    loading: () => (
-      <div
-        className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-sm text-zinc-500 dark:border-zinc-700"
-        aria-busy="true"
-      >
-        Loading uploader…
-      </div>
-    ),
-  },
-);
-
-// WHY: data freshness — `force-dynamic` ensures we never serve a stale
-// recent-portfolios list after a successful upload.
 export const dynamic = "force-dynamic";
+// WHY: recent-portfolios must reflect the just-completed upload flow; any
+// caching here defeats the "I just uploaded, where did it go?" feedback.
 export const revalidate = 0;
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-});
-
-async function fetchRecentPortfolios(): Promise<{
-  rows: Portfolio[];
-  error: string | null;
-}> {
+async function fetchRecentPortfolios(): Promise<Portfolio[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("portfolios")
     .select("id, name, row_count, anomaly_count, cleaning_report, created_at")
     .order("created_at", { ascending: false })
-    .limit(5);
-  return {
-    rows: (data as Portfolio[] | null) ?? [],
-    error: error?.message ?? null,
-  };
+    .limit(10);
+  return (data as Portfolio[] | null) ?? [];
 }
 
-export default async function Home() {
-  const { rows, error } = await fetchRecentPortfolios();
-  const isEmpty = !error && rows.length === 0;
+type HowItWorksStep = {
+  icon: typeof Upload;
+  title: string;
+  body: string;
+};
+
+const STEPS: HowItWorksStep[] = [
+  {
+    icon: Upload,
+    title: "Upload CSV",
+    body: "Drop a project portfolio. We validate required columns and stash the raw file in Storage.",
+  },
+  {
+    icon: Sparkles,
+    title: "Clean & flag",
+    body: "Median imputation, type coercion, and threshold-based anomaly flags — documented per run.",
+  },
+  {
+    icon: BarChart3,
+    title: "Train & ask",
+    body: "Two dispute-risk models compare side-by-side. Ask questions over uploaded project documents.",
+  },
+];
+
+export default async function Home(): Promise<ReactElement> {
+  const portfolios = await fetchRecentPortfolios();
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <header className="mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Enlaye — Construction Risk Dashboard
+    <div className="mx-auto w-full max-w-6xl px-6">
+      {/* Hero */}
+      <section className="flex flex-col items-center gap-5 py-20 text-center md:py-28">
+        <Badge variant="outline" className="uppercase tracking-wide">
+          Construction risk · demo
+        </Badge>
+        <h1 className="text-display max-w-3xl text-foreground">
+          See risk before the first shovel.
         </h1>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Upload a portfolio CSV to clean, score, and explore it.
+        <p className="text-body mx-auto max-w-xl text-muted-foreground">
+          Upload a portfolio CSV. Enlaye cleans the data, flags anomalies,
+          compares two dispute-risk models, and answers questions over your
+          project documents.
         </p>
-      </header>
-
-      {/* WHY: first-run empty state. New visitors with zero portfolios get a
-          one-sentence pitch + a clear "no data? try the demo" nudge. The
-          dropzone itself renders the demo button, so we just point at it. */}
-      {isEmpty ? (
-        <section
-          aria-labelledby="empty-state-heading"
-          className="mb-8 rounded-lg border border-zinc-200 bg-zinc-50/60 p-5 dark:border-zinc-800 dark:bg-zinc-900/40"
-        >
-          <h2
-            id="empty-state-heading"
-            className="text-sm font-medium text-zinc-900 dark:text-zinc-100"
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href="#upload"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            New here?
-          </h2>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            This app cleans a CSV of construction projects, flags anomalies, and
-            scores dispute risk. Drop a file below — or click{" "}
-            <span className="font-medium">Load demo data</span> to try it with a
-            sample portfolio.
-          </p>
-        </section>
-      ) : null}
-
-      <section className="mb-12" aria-label="Upload a portfolio CSV">
-        <CsvUpload />
+            Try with demo data
+            <ArrowRight className="size-3.5" aria-hidden />
+          </a>
+          <a
+            href="#pillars"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            See how it works
+          </a>
+        </div>
+        <p className="mt-6 max-w-xl text-[12px] text-muted-foreground">
+          Originally scoped as a 120-minute internship assessment, now built out
+          as the product that brief was pointing at.
+        </p>
       </section>
 
-      <section aria-labelledby="recent-portfolios-heading">
-        <h2
-          id="recent-portfolios-heading"
-          className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500"
-        >
-          Recent portfolios
-        </h2>
-        {error ? (
-          <p className="text-sm text-red-600" role="alert">
-            Could not load portfolios: {error}
+      {/* Upload */}
+      <section
+        id="upload"
+        aria-label="Upload a portfolio"
+        className="scroll-mt-12 pb-20"
+      >
+        <Card className="p-6 md:p-8">
+          <CsvUpload />
+        </Card>
+      </section>
+
+      {/* How it works (user flow, 3 steps) */}
+      <section aria-labelledby="how-heading" className="pb-20">
+        <div className="mb-8 max-w-2xl">
+          <p className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
+            User flow
           </p>
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-zinc-500">
-            No portfolios yet — upload your first CSV above.
+          <h2 id="how-heading" className="text-h1 mt-2 text-foreground">
+            Three steps from CSV to insight.
+          </h2>
+          <p className="mt-3 text-body text-muted-foreground">
+            Everything a reviewer needs to see happens in two clicks and one
+            paste of a question.
+          </p>
+        </div>
+        <ol className="grid list-none gap-4 p-0 md:grid-cols-3">
+          {STEPS.map((step, i) => {
+            const Icon = step.icon;
+            return (
+              <li key={step.title}>
+                <Card className="h-full p-5">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground"
+                        aria-hidden
+                      >
+                        <Icon className="size-4" />
+                      </div>
+                      <span className="text-meta tabular-nums">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                    </div>
+                    <h3 className="text-h3 text-foreground">{step.title}</h3>
+                    <p className="text-body text-muted-foreground">
+                      {step.body}
+                    </p>
+                  </div>
+                </Card>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+
+      {/* Product pillars (what it does, with inline UI mockups) */}
+      <div id="pillars" className="scroll-mt-12">
+        <ProductPillars />
+      </div>
+
+      {/* Architecture diagram */}
+      <ArchitectureDiagram />
+
+      {/* Tech stack grid */}
+      <TechStackGrid />
+
+      {/* Known limits */}
+      <KnownLimits />
+
+      {/* Recent portfolios */}
+      <section aria-labelledby="recent-heading" className="pb-20">
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
+              Live data
+            </p>
+            <h2 id="recent-heading" className="text-h1 mt-2 text-foreground">
+              Recent portfolios
+            </h2>
+          </div>
+          {portfolios.length > 0 ? (
+            <p className="text-meta">Latest {portfolios.length}</p>
+          ) : null}
+        </div>
+        {portfolios.length === 0 ? (
+          <p className="text-body text-muted-foreground">
+            New here? Upload your first portfolio above.
           </p>
         ) : (
-          <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {rows.map((p) => (
-              <li key={p.id}>
-                <Link
-                  href={`/portfolios/${p.id}`}
-                  className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-900/60"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {p.name}
-                    </p>
-                    <p className="text-xs text-zinc-500">
-                      {dateFormatter.format(new Date(p.created_at))}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-xs tabular-nums text-zinc-500">
-                    {p.row_count} rows · {p.anomaly_count} anomalies
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <RecentPortfolios portfolios={portfolios} />
         )}
       </section>
-    </main>
+
+      <Footer />
+    </div>
+  );
+}
+
+function Footer(): ReactElement {
+  return (
+    <footer className="flex flex-col gap-4 border-t border-border py-8 md:flex-row md:items-center md:justify-between">
+      <div className="flex items-center gap-2">
+        <MessageSquare className="size-3.5 text-muted-foreground" aria-hidden />
+        <p className="text-meta">
+          Built with Next.js, Supabase, DeepSeek · enlaye.com
+        </p>
+      </div>
+      <div className="flex items-center gap-4 text-meta">
+        <Link
+          href="https://github.com/Metdez/enlaye"
+          className="inline-flex items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <GitBranch className="size-3.5" aria-hidden />
+          <span>github.com/Metdez/enlaye</span>
+        </Link>
+      </div>
+    </footer>
   );
 }
