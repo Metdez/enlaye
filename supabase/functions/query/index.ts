@@ -95,10 +95,19 @@ const SYSTEM_PROMPT =
 
 // ---- Helpers --------------------------------------------------------
 
+// CORS — browser posts directly here; we need preflight support.
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400",
+};
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
 
@@ -118,6 +127,9 @@ function coerceNumber(v: unknown, fallback: number): number {
 // ---- Handler --------------------------------------------------------
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
   if (req.method !== "POST") {
     return jsonResponse({ error: "method not allowed" }, 405);
   }

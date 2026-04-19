@@ -64,7 +64,21 @@ type WebhookPayload = {
   };
 };
 
+// CORS — the function used to be called only from pg_net (server→server,
+// no browser). Now the frontend invokes it directly via supabase-js, which
+// requires CORS. Allow any origin for the demo; tighten if multi-tenant.
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Max-Age": "86400",
+};
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
   if (req.method !== "POST") {
     return json({ error: "method_not_allowed" }, 405);
   }
@@ -240,7 +254,7 @@ Deno.serve(async (req) => {
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
 

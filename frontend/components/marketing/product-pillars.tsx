@@ -68,7 +68,7 @@ export function ProductPillars(): ReactElement {
     <section aria-labelledby="pillars-heading" className="space-y-16 pb-20">
       <header className="max-w-2xl">
         <p className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
-          What Enlaye does
+          What Enlaye Demo does
         </p>
         <h2 id="pillars-heading" className="text-h1 mt-2 text-foreground">
           Three jobs, done deliberately.

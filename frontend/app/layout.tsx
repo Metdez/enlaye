@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Enlaye — Construction Risk Dashboard",
+  title: "Enlaye Demo — Construction Risk Dashboard",
   description:
     "Upload a project portfolio CSV, flag anomalies, score dispute risk, and chat over project documents.",
   icons: { icon: "/favicon.ico" },

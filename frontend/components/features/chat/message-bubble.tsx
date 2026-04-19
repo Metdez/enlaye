@@ -63,6 +63,64 @@ function tokenize(text: string, maxIndex: number): AnswerToken[] {
   return out;
 }
 
+// Ultralight markdown → React. Handles `**bold**`, `*italic*`, and inline
+// `code`. Deliberately narrow scope: avoids pulling in a full markdown
+// library for one chat surface, and the model's cite-or-abstain prompt
+// already prunes most other markdown (tables, images, headings).
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactElement[] {
+  const out: ReactElement[] = [];
+  // Match bold > italic > code in that order so `**foo**` isn't eaten by
+  // the italic pattern on the first asterisk.
+  const re = /\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+?)`/g;
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let i = 0;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > last) {
+      out.push(
+        <span key={`${keyPrefix}-t-${i++}`}>
+          {text.slice(last, match.index)}
+        </span>,
+      );
+    }
+    const bold = match[1];
+    const italic = match[2];
+    const code = match[3];
+    if (bold !== undefined) {
+      out.push(
+        <strong
+          key={`${keyPrefix}-b-${i++}`}
+          className="font-semibold text-foreground"
+        >
+          {bold}
+        </strong>,
+      );
+    } else if (italic !== undefined) {
+      out.push(
+        <em key={`${keyPrefix}-i-${i++}`} className="italic">
+          {italic}
+        </em>,
+      );
+    } else if (code !== undefined) {
+      out.push(
+        <code
+          key={`${keyPrefix}-c-${i++}`}
+          className="rounded-sm bg-background/60 px-1 py-px font-mono text-[0.85em] text-foreground"
+        >
+          {code}
+        </code>,
+      );
+    }
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) {
+    out.push(
+      <span key={`${keyPrefix}-t-${i++}`}>{text.slice(last)}</span>,
+    );
+  }
+  return out;
+}
+
 type MessageBubbleProps = {
   message: ChatMessage;
 };
@@ -101,10 +159,10 @@ export function MessageBubble({ message }: MessageBubbleProps): ReactElement {
   return (
     <div className="flex justify-start">
       <div className="flex w-full max-w-[85%] flex-col gap-2">
-        <div className="whitespace-pre-wrap break-words rounded-lg bg-muted px-3 py-2 text-body text-foreground">
+        <div className="whitespace-pre-wrap break-words rounded-lg bg-muted px-4 py-3 text-[14.5px] leading-[1.65] text-foreground/90">
           {tokens.map((tok, i) =>
             tok.kind === "text" ? (
-              <span key={`t-${i}`}>{tok.value}</span>
+              <span key={`t-${i}`}>{renderInlineMarkdown(tok.value, `t-${i}`)}</span>
             ) : (
               <CitationChip
                 key={`c-${i}-${tok.index}`}

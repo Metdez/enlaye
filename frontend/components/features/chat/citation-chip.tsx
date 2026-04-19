@@ -1,9 +1,11 @@
 "use client";
 
 // Inline [C1] citation chip rendered inside assistant answers.
-// WHY: click should scroll the matching SourceCard into view and briefly
-// highlight it. Chips use the sidebar-accent tokens so they stay legible
-// on both the primary-tinted user bubbles and the muted assistant bubbles.
+//
+// Design: as small and quiet as possible without losing affordance. Sits on
+// the text baseline so it doesn't inflate line-height, uses neutral-muted
+// colors at rest so a chain of 5+ chips doesn't visually dominate the prose,
+// flips to primary tone on hover/focus so the click target still reads.
 
 import type { ReactElement } from "react";
 
@@ -27,7 +29,8 @@ export function CitationChip({
       onClick={() => onClick?.(index)}
       aria-label={`Jump to source ${index}`}
       className={cn(
-        "mx-0.5 inline-flex items-center rounded-sm bg-sidebar-accent px-1.5 py-0.5 text-meta font-medium text-sidebar-accent-foreground transition-colors duration-150 hover:bg-sidebar-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:translate-y-px",
+        "mx-[1px] inline-flex h-4 items-center rounded-sm bg-muted px-1 align-[-1px] font-mono text-[10px] font-medium tabular-nums text-muted-foreground transition-colors duration-150",
+        "hover:bg-primary hover:text-primary-foreground focus-visible:bg-primary focus-visible:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
     >

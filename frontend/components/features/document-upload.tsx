@@ -33,7 +33,7 @@ const ACCEPT_MAP = {
   "text/plain": [".txt"],
 };
 
-type UploadItemStage = "uploading" | "inserting" | "done" | "error";
+type UploadItemStage = "uploading" | "inserting" | "embedding" | "done" | "error";
 
 type UploadItem = {
   id: string;
@@ -113,22 +113,52 @@ export function DocumentUpload({ portfolio_id }: { portfolio_id: string }) {
           throw new Error(`Storage upload failed: ${uploadErr.message}`);
         }
 
-        // WHY: AFTER INSERT trigger `documents_embed_trigger` POSTs the new
-        // row to the `embed` Edge Function — we do NOT call /embed directly.
+        // Insert the documents row, then invoke the embed Edge Function
+        // from the client as a belt-and-suspenders.
+        // WHY: the DB-side AFTER INSERT trigger `documents_embed_trigger`
+        // still exists (and will fire the webhook when pg_net is healthy),
+        // but we've seen pg_net OOM on the cloud and swallow dispatches.
+        // A client-side invoke guarantees embedding starts regardless of
+        // pg_net state. The embed function is idempotent on re-invocation
+        // for an already-completed row (it will fast-fail on the status
+        // check), so calling it twice is harmless.
         updateItem(id, { stage: "inserting" });
-        const { error: insertErr } = await supabase.from("documents").insert({
-          portfolio_id,
-          filename: file.name,
-          storage_path: storagePath,
-          embedding_status: "pending",
+        const { data: insertedRow, error: insertErr } = await supabase
+          .from("documents")
+          .insert({
+            portfolio_id,
+            filename: file.name,
+            storage_path: storagePath,
+            embedding_status: "pending",
+          })
+          .select()
+          .single();
+        if (insertErr || !insertedRow) {
+          throw new Error(
+            `Failed to register document: ${insertErr?.message ?? "no row returned"}`,
+          );
+        }
+
+        // Await the embed dispatch. WHY not fire-and-forget: if the user
+        // navigates away (e.g. jumps straight to /ask) the in-flight
+        // invoke can be cancelled by the browser and the row stays in
+        // `pending` forever. Awaiting is ~5s but guarantees the function
+        // actually runs. On success the function has already flipped
+        // `embedding_status` to `complete`, so `router.refresh()` below
+        // pulls the updated row immediately.
+        updateItem(id, { stage: "embedding" });
+        const { error: invokeErr } = await supabase.functions.invoke("embed", {
+          body: { record: insertedRow },
         });
-        if (insertErr) {
-          throw new Error(`Failed to register document: ${insertErr.message}`);
+        if (invokeErr) {
+          throw new Error(
+            `Embedding failed: ${invokeErr.message}. The file is uploaded; retry from the Documents list.`,
+          );
         }
 
         updateItem(id, { stage: "done" });
         toastSuccess(`Uploaded ${file.name}`, {
-          description: "Embedding will continue in background.",
+          description: "Ready for chat.",
         });
         router.refresh();
 
@@ -243,6 +273,12 @@ export function DocumentUpload({ portfolio_id }: { portfolio_id: string }) {
                 <span className="inline-flex items-center gap-1.5 text-meta">
                   <Loader2 className="size-3 animate-spin" aria-hidden />
                   Registering
+                </span>
+              )}
+              {it.stage === "embedding" && (
+                <span className="inline-flex items-center gap-1.5 text-meta">
+                  <Loader2 className="size-3 animate-spin" aria-hidden />
+                  Embedding
                 </span>
               )}
               {it.stage === "done" && (

@@ -17,7 +17,14 @@ import {
   type KeyboardEvent,
   type ReactElement,
 } from "react";
-import { Loader2, Send, Settings2, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  Loader2,
+  MessageSquare,
+  Send,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
 
 import {
   MessageList,
@@ -63,6 +70,15 @@ function makeId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Suggested starter questions — tied to the demo PDF so first-time users
+// get a working prompt in one click instead of staring at a blank textarea.
+const STARTER_QUESTIONS: string[] = [
+  "What drove the Airport Terminal Expansion overrun?",
+  "Which active project has the highest safety exposure?",
+  "How many disputes are outstanding on Wastewater Treatment Plant?",
+  "List the notable change orders and their dollar values.",
+];
+
 type ChatPanelProps = {
   portfolioId: string;
   disabled?: boolean;
@@ -83,6 +99,13 @@ export function ChatPanel({
   // WHY: a single controller owns the live fetch; new submits abort the
   // previous, unmount aborts whatever is still pending.
   const abortRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Focus the composer on mount so a user who navigates here can type
+  // immediately without a tab stop.
+  useEffect(() => {
+    if (!disabled) textareaRef.current?.focus();
+  }, [disabled]);
 
   useEffect(
     () => () => {
@@ -232,7 +255,48 @@ export function ChatPanel({
     >
       {/* Left — message list + composer */}
       <div className="flex min-h-0 flex-col gap-4">
-        <MessageList messages={messages} className="min-h-[320px]" />
+        {messages.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-6 rounded-lg border border-border bg-card/40 p-8 text-center">
+            <div
+              className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary"
+              aria-hidden
+            >
+              <MessageSquare className="size-5" />
+            </div>
+            <div className="max-w-md space-y-2">
+              <h3 className="text-h2 text-foreground">Ask anything about your documents</h3>
+              <p className="text-body text-muted-foreground">
+                Answers are grounded in the chunks you&apos;ve indexed, cited
+                back to each source. Try one of these to get started:
+              </p>
+            </div>
+            <div className="grid w-full max-w-xl gap-2 sm:grid-cols-2">
+              {STARTER_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => {
+                    setInput(q);
+                    void submit(q);
+                  }}
+                  className="group flex items-start gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-left text-[13px] text-foreground transition-colors hover:border-primary/50 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Sparkles
+                    aria-hidden
+                    className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
+                  />
+                  <span className="flex-1">{q}</span>
+                  <ArrowRight
+                    aria-hidden
+                    className="mt-0.5 size-3.5 shrink-0 -translate-x-0.5 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-60"
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <MessageList messages={messages} className="min-h-[320px]" />
+        )}
 
         <form
           className="flex flex-col gap-2"
@@ -246,6 +310,7 @@ export function ChatPanel({
             <Textarea
               id="chat-composer"
               name="question"
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}

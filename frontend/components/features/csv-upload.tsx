@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Sparkles, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { createBrowserSupabase } from "@/lib/supabase-browser";
@@ -247,60 +247,66 @@ export function CsvUpload() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-stretch">
-        <div
-          {...getRootProps()}
+        {/* PRIMARY: load sample data. Same neutral card shell as the dropzone
+            so the visual language stays consistent — only the copy and the
+            click target change. */}
+        <button
+          type="button"
+          onClick={() => void loadDemo()}
+          disabled={busy}
           className={cn(
-            "flex-1 rounded-lg border border-dashed bg-muted/30 px-6 py-10 text-center transition-colors",
+            "group flex-1 rounded-lg border bg-muted/30 px-6 py-10 text-center transition-colors",
             "cursor-pointer select-none",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-            isDragActive
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-foreground/30",
-            stage === "error" && "border-destructive/60 bg-destructive/5",
+            "border-border hover:border-primary/50 hover:bg-primary/[0.04]",
             busy && "pointer-events-none opacity-60",
           )}
-          aria-label="CSV upload dropzone"
-          aria-busy={busy}
           aria-describedby={busy ? statusId : undefined}
         >
-          <input {...getInputProps()} aria-label="CSV file input" />
           <div className="flex flex-col items-center gap-2">
-            <div className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
               {busy ? (
                 <Loader2 className="size-5 animate-spin" aria-hidden />
               ) : (
-                <Upload className="size-5" aria-hidden />
+                <Sparkles className="size-5" aria-hidden />
               )}
             </div>
-            <p className="text-h3 text-foreground">
-              {isDragActive
-                ? "Drop the CSV to upload"
-                : "Drop a CSV or click to upload"}
-            </p>
-            <p className="text-meta">
-              Up to 10 MB. Required columns: project_id, project_name, project_type, contract_value_usd.
+            <p className="text-h3 text-foreground">Load sample data</p>
+            <p className="text-meta max-w-md">
+              15 construction projects, pre-cleaned and flagged. Opens the full
+              dashboard in one click.
             </p>
             {stageLabel ? (
               <p className="text-meta mt-1 text-foreground">{stageLabel}</p>
             ) : null}
           </div>
-        </div>
+        </button>
 
-        {/* WHY: demo + fallback input column — keyboard-accessible path that
-            doesn't rely on react-dropzone's root-element handlers. */}
-        <div className="flex shrink-0 flex-col justify-center gap-2 md:w-40">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              void loadDemo();
-            }}
-            disabled={busy}
+        {/* SECONDARY: bring your own CSV. Compact dropzone + file fallback in
+            a narrow right column. Drag-and-drop still lives here so users who
+            prefer uploading their own data have the full affordance. */}
+        <div className="flex shrink-0 flex-col gap-2 md:w-56">
+          <div
+            {...getRootProps()}
+            className={cn(
+              "flex flex-1 cursor-pointer select-none flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              isDragActive
+                ? "border-primary bg-primary/5"
+                : "border-border hover:border-foreground/30",
+              stage === "error" && "border-destructive/60 bg-destructive/5",
+              busy && "pointer-events-none opacity-60",
+            )}
+            aria-label="CSV upload dropzone"
+            aria-busy={busy}
           >
-            Load demo data
-          </Button>
+            <input {...getInputProps()} aria-label="CSV file input" />
+            <Upload className="size-4 text-muted-foreground" aria-hidden />
+            <p className="text-meta font-medium text-foreground">
+              {isDragActive ? "Drop to upload" : "Or upload your own CSV"}
+            </p>
+            <p className="text-meta leading-tight">≤ 10 MB</p>
+          </div>
           <Button
             type="button"
             variant="ghost"

@@ -46,14 +46,14 @@ function Brand({ collapsed }: { collapsed: boolean }): ReactElement {
           "outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar",
           collapsed && "w-full justify-center px-0",
         )}
-        aria-label="Enlaye home"
+        aria-label="Enlaye Demo home"
       >
         {collapsed ? (
           <span aria-hidden="true" className="text-base">
             E
           </span>
         ) : (
-          <span>Enlaye</span>
+          <span>Enlaye Demo</span>
         )}
       </Link>
     </div>

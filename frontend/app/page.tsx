@@ -78,10 +78,10 @@ export default async function Home(): Promise<ReactElement> {
           Construction risk · demo
         </Badge>
         <h1 className="text-display max-w-3xl text-foreground">
-          See risk before the first shovel.
+          The assigment you gave me but in a web app
         </h1>
         <p className="text-body mx-auto max-w-xl text-muted-foreground">
-          Upload a portfolio CSV. Enlaye cleans the data, flags anomalies,
+          Upload a portfolio CSV. Enlaye Demo cleans the data, flags anomalies,
           compares two dispute-risk models, and answers questions over your
           project documents.
         </p>
