@@ -197,28 +197,34 @@ _INT_COLUMNS: frozenset[str] = frozenset(
 )
 
 
-def _normalize_storage_path(storage_path: str) -> str:
-    """Strip an optional `portfolios-uploads/` prefix from the caller's path.
+def _canonical_storage_path(portfolio_id: str, storage_path: str) -> str:
+    """Validate caller's path against the canonical shape, accept prefix variants.
 
-    WHY: callers vary. The frontend server action mints signed URLs with
-    the bare `portfolios/<uuid>/raw.csv` shape, but the Supabase JS
-    client's `getPublicUrl` returns paths prefixed with the bucket name.
-    We accept both so a working caller doesn't silently 404 because of
-    a cosmetic prefix difference.
+    WHY: without this check, a caller with two portfolio UUIDs can cross-
+    ingest — e.g. POST `{portfolio_id: A, storage_path: portfolios/B/raw.csv}`
+    — because the service only verifies that `portfolio_id` exists, not that
+    the path belongs to it. We pin the path to `portfolios/<portfolio_id>/raw.csv`
+    after stripping an optional bucket prefix, and 400 on any mismatch.
     """
-    # SECURITY: refuse traversal or absolute paths before they reach the
-    # storage SDK. The bucket is pinned elsewhere, but a path like
-    # `portfolios/../other-thing` can still move the lookup inside the
-    # same bucket — and a leading `/` trips the SDK's path parser.
+    # SECURITY: refuse traversal or absolute paths before any parsing.
     if ".." in storage_path or storage_path.startswith("/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "invalid storage_path", "storage_path": storage_path},
         )
     prefix = f"{_STORAGE_BUCKET}/"
-    if storage_path.startswith(prefix):
-        return storage_path[len(prefix) :]
-    return storage_path
+    normalized = storage_path[len(prefix) :] if storage_path.startswith(prefix) else storage_path
+    expected = f"portfolios/{portfolio_id}/raw.csv"
+    if normalized != expected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "storage_path does not match the canonical shape for this portfolio",
+                "expected": expected,
+                "got": normalized,
+            },
+        )
+    return normalized
 
 
 def _df_to_records(df: pd.DataFrame, portfolio_id: str) -> list[dict[str, Any]]:
@@ -304,7 +310,9 @@ def ingest(
         )
 
     # ---- 2. Download CSV from Storage ----
-    object_path = _normalize_storage_path(req.storage_path)
+    # WHY: the canonical check pins the path to this portfolio so a caller
+    # with two portfolio UUIDs can't cross-ingest another portfolio's file.
+    object_path = _canonical_storage_path(portfolio_id, req.storage_path)
     try:
         raw_bytes: bytes = client.storage.from_(_STORAGE_BUCKET).download(object_path)
     except Exception as exc:  # noqa: BLE001 — SDK raises a variety of subclasses
@@ -333,33 +341,77 @@ def ingest(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": "malformed CSV", "details": str(exc)},
         ) from exc
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+        # WHY: pandas raises these when the payload isn't CSV-shaped
+        # (binary file, empty file, jagged rows). Surface as 400 so the
+        # client gets an actionable error instead of a generic 500.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "malformed CSV", "details": str(exc)},
+        ) from exc
+    except UnicodeDecodeError as exc:
+        # Non-UTF-8 byte payload — same user-facing class of error.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "malformed CSV",
+                "details": f"file is not valid UTF-8: {exc}",
+            },
+        ) from exc
 
-    # ---- 4. Delete existing rows for this portfolio (idempotent) ----
-    # WHY: delete-then-insert beats upsert here because project_id_external
-    # isn't unique across portfolios and we have no natural composite key.
-    # WHY: delete-then-insert is idempotent under sequential access only.
-    # Two concurrent /ingest calls for the same portfolio_id can interleave
-    # and double-insert. Acceptable for MVP (single-user demo mode per
-    # ARCHITECTURE.md § Security Model); if we go multi-user we either need
-    # a DB-level unique constraint + upsert or to wrap this in a transaction.
-    client.table("projects").delete().eq("portfolio_id", portfolio_id).execute()
+    # ---- 4..6. Delete / insert / update with metadata-state recovery ----
+    # WHY: the three writes aren't wrapped in a transaction (supabase-py
+    # doesn't expose one over the REST API). If insert or the portfolio
+    # metadata update fails mid-way, the DB can end up with projects rows
+    # that don't match portfolios.row_count/anomaly_count. We can't undo
+    # the delete/insert cheaply, but we CAN snapshot the prior portfolio
+    # metadata up front and restore it on failure so at least the summary
+    # row reflects reality (a follow-up ingest will then set it correctly).
+    # Tracked for a proper transaction/RPC fix when we go multi-user —
+    # see ARCHITECTURE.md § Security Model.
+    metadata_snapshot = (
+        client.table("portfolios")
+        .select("row_count, anomaly_count, cleaning_report")
+        .eq("id", portfolio_id)
+        .limit(1)
+        .execute()
+    )
+    snapshot = metadata_snapshot.data[0] if metadata_snapshot.data else None
 
-    # ---- 5. Insert cleaned rows ----
     records = _df_to_records(cleaned_df, portfolio_id)
-    if records:
-        client.table("projects").insert(records).execute()
-
-    # ---- 6. Update portfolio metadata ----
     anomaly_count = int(sum(1 for flags in cleaned_df["anomaly_flags"] if flags))
     row_count = int(len(cleaned_df))
-    # `report` is a TypedDict — a plain dict at runtime, directly jsonb-safe.
-    client.table("portfolios").update(
-        {
-            "row_count": row_count,
-            "anomaly_count": anomaly_count,
-            "cleaning_report": dict(report),
-        }
-    ).eq("id", portfolio_id).execute()
+
+    try:
+        client.table("projects").delete().eq("portfolio_id", portfolio_id).execute()
+        if records:
+            client.table("projects").insert(records).execute()
+        # `report` is a TypedDict — a plain dict at runtime, directly jsonb-safe.
+        client.table("portfolios").update(
+            {
+                "row_count": row_count,
+                "anomaly_count": anomaly_count,
+                "cleaning_report": dict(report),
+            }
+        ).eq("id", portfolio_id).execute()
+    except Exception:  # noqa: BLE001 — any DB failure during the write trio
+        # Best-effort recovery: restore portfolio metadata to its pre-ingest
+        # snapshot so the UI doesn't show stale counts. Projects rows may
+        # still be in an inconsistent state; the next ingest will rebuild.
+        logger.exception(
+            "ingest.write_failed portfolio_id=%s — attempting metadata rollback",
+            portfolio_id,
+        )
+        if snapshot is not None:
+            try:
+                client.table("portfolios").update(snapshot).eq(
+                    "id", portfolio_id
+                ).execute()
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "ingest.rollback_failed portfolio_id=%s", portfolio_id
+                )
+        raise
 
     logger.info(
         "ingest.done portfolio_id=%s row_count=%d anomaly_count=%d",

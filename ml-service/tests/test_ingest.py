@@ -300,19 +300,32 @@ def test_ingest_missing_portfolio(
 def test_ingest_missing_storage_path(
     client: TestClient,
     auth_headers: dict[str, str],
-    portfolio_id: str,
+    sb_admin: Any,
 ) -> None:
-    bogus_path = f"portfolios/{portfolio_id}/does-not-exist.csv"
-    resp = client.post(
-        "/ingest",
-        headers=auth_headers,
-        json={"portfolio_id": portfolio_id, "storage_path": bogus_path},
-    )
-    assert resp.status_code == 404
-    body = resp.json()
-    detail = body.get("detail", body)
-    assert detail["error"] == "csv not found at storage_path"
-    assert detail["storage_path"] == bogus_path
+    """Canonical path shape, but the object isn't uploaded → 404.
+
+    WHY: uses a fresh portfolio_id whose raw.csv is NOT uploaded to storage,
+    so the path passes the canonical check and the 404 is the genuine
+    storage-miss branch (not the path-validation branch).
+    """
+    pid = str(uuid.uuid4())
+    sb_admin.table("portfolios").insert(
+        {"id": pid, "name": f"test-missing-{pid[:8]}"}
+    ).execute()
+    canonical_path = f"portfolios/{pid}/raw.csv"
+    try:
+        resp = client.post(
+            "/ingest",
+            headers=auth_headers,
+            json={"portfolio_id": pid, "storage_path": canonical_path},
+        )
+        assert resp.status_code == 404
+        body = resp.json()
+        detail = body.get("detail", body)
+        assert detail["error"] == "csv not found at storage_path"
+        assert detail["storage_path"] == canonical_path
+    finally:
+        sb_admin.table("portfolios").delete().eq("id", pid).execute()
 
 
 def test_ingest_malformed_csv(
@@ -326,7 +339,9 @@ def test_ingest_malformed_csv(
         {"id": pid, "name": f"test-malformed-{pid[:8]}"}
     ).execute()
 
-    storage_path = f"portfolios/{pid}/malformed.csv"
+    # WHY: the filename must be `raw.csv` to pass the canonical-path check;
+    # the malformed-CSV behavior we're testing is orthogonal to the path.
+    storage_path = f"portfolios/{pid}/raw.csv"
     # Missing `region` (and most other required columns) — parse_csv must reject.
     bad_csv = b"project_id,project_name\nPRJ001,Test\n"
     try:
@@ -372,6 +387,81 @@ def test_ingest_rejects_traversal_path(
     body = r.json()
     detail = body.get("detail", body)
     assert detail["error"] == "invalid storage_path"
+
+
+def test_ingest_rejects_cross_portfolio_path(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    portfolio_id: str,
+) -> None:
+    """A path for a DIFFERENT portfolio_id must 400 — prevents cross-ingest."""
+    other_uuid = str(uuid.uuid4())
+    r = client.post(
+        "/ingest",
+        json={
+            "portfolio_id": portfolio_id,
+            "storage_path": f"portfolios/{other_uuid}/raw.csv",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    detail = r.json().get("detail", {})
+    assert "canonical shape" in detail.get("error", "")
+
+
+def test_ingest_rejects_wrong_filename(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    portfolio_id: str,
+) -> None:
+    """Path within the right portfolio but wrong filename → 400."""
+    r = client.post(
+        "/ingest",
+        json={
+            "portfolio_id": portfolio_id,
+            "storage_path": f"portfolios/{portfolio_id}/other.csv",
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 400
+    detail = r.json().get("detail", {})
+    assert "canonical shape" in detail.get("error", "")
+
+
+def test_ingest_binary_file_is_400(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    sb_admin: Any,
+) -> None:
+    """A non-UTF-8 binary payload must yield 400 (not 500) via the
+    broadened pandas/UnicodeDecodeError handlers."""
+    pid = str(uuid.uuid4())
+    sb_admin.table("portfolios").insert(
+        {"id": pid, "name": f"test-bin-{pid[:8]}"}
+    ).execute()
+    storage_path = f"portfolios/{pid}/raw.csv"
+    # Invalid UTF-8 bytes.
+    bad_bytes = b"\xff\xfe\x00\x00\x89PNG\r\n\x1a\n"
+    try:
+        sb_admin.storage.from_(_BUCKET).upload(
+            path=storage_path,
+            file=bad_bytes,
+            file_options={"content-type": "text/csv"},
+        )
+        resp = client.post(
+            "/ingest",
+            headers=auth_headers,
+            json={"portfolio_id": pid, "storage_path": storage_path},
+        )
+        assert resp.status_code == 400, resp.text
+        detail = resp.json().get("detail", {})
+        assert detail["error"] == "malformed CSV"
+    finally:
+        try:
+            sb_admin.storage.from_(_BUCKET).remove([storage_path])
+        except Exception:
+            pass
+        sb_admin.table("portfolios").delete().eq("id", pid).execute()
 
 
 def test_df_to_records_nullable_int_becomes_none() -> None:
