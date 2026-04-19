@@ -1,0 +1,45 @@
+# Node
+node_modules/
+.next/
+out/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Env files — NEVER commit
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Build artifacts
+*.log
+coverage/
+.pytest_cache/
+.mypy_cache/
+
+# Vercel
+.vercel
+
+# Railway
+.railway/
