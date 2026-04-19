@@ -14,12 +14,15 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Annotated
+from typing import Annotated, Any
 
+import pandas as pd
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
+
+import cleaning
 
 load_dotenv()
 
@@ -171,13 +174,206 @@ def health() -> dict[str, object]:
     }
 
 
+# ---------------------------------------------------------------------------
+# /ingest helpers
+# ---------------------------------------------------------------------------
+
+_STORAGE_BUCKET = "portfolios-uploads"
+
+# WHY: these projects-table columns are `int` in Postgres but arrive as
+# float64 out of pandas (medians, imputed cells, NaN-friendly dtype). We
+# round+cast at the insert boundary so Postgres doesn't 22P02 on "2.0".
+# Any None in these columns is preserved as-is (already handled upstream).
+# NOTE: keep this in sync with `projects` column types in
+# ARCHITECTURE.md § Database Schema. Any new int-typed column must be
+# added here, otherwise float medians will land as text in Postgres.
+_INT_COLUMNS: frozenset[str] = frozenset(
+    {
+        "subcontractor_count",
+        "safety_incidents",
+        "payment_disputes",
+        "actual_duration_days",
+    }
+)
+
+
+def _normalize_storage_path(storage_path: str) -> str:
+    """Strip an optional `portfolios-uploads/` prefix from the caller's path.
+
+    WHY: callers vary. The frontend server action mints signed URLs with
+    the bare `portfolios/<uuid>/raw.csv` shape, but the Supabase JS
+    client's `getPublicUrl` returns paths prefixed with the bucket name.
+    We accept both so a working caller doesn't silently 404 because of
+    a cosmetic prefix difference.
+    """
+    # SECURITY: refuse traversal or absolute paths before they reach the
+    # storage SDK. The bucket is pinned elsewhere, but a path like
+    # `portfolios/../other-thing` can still move the lookup inside the
+    # same bucket — and a leading `/` trips the SDK's path parser.
+    if ".." in storage_path or storage_path.startswith("/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "invalid storage_path", "storage_path": storage_path},
+        )
+    prefix = f"{_STORAGE_BUCKET}/"
+    if storage_path.startswith(prefix):
+        return storage_path[len(prefix) :]
+    return storage_path
+
+
+def _df_to_records(df: pd.DataFrame, portfolio_id: str) -> list[dict[str, Any]]:
+    """Convert the cleaned DataFrame into JSON-safe insert records.
+
+    WHY: pandas' default `.to_dict("records")` leaks `NaT` / `NaN` /
+    `pd.NA` sentinels that the Supabase SDK then serializes as the
+    string "NaT" or the JSON number `NaN`, neither of which Postgres
+    will accept for a date / numeric column. We normalize to real
+    Python `None` (= JSON null) and stringify dates explicitly.
+    """
+    # astype(object) is required so pandas lets us drop nullable ints /
+    # Timestamps into a single object column where `.where(..., None)`
+    # can replace NA sentinels uniformly.
+    # WHY: compute `.notna()` on the *cast* frame, not the original. For
+    # nullable Int64 columns, `astype(object)` keeps `pd.NA` as `pd.NA`
+    # (not `None`); if the mask comes from the pre-cast frame it can say
+    # "not NA" for a cell that's actually `pd.NA` after the cast, letting
+    # the sentinel survive into JSON serialization.
+    normalized = df.astype(object)
+    normalized = normalized.where(normalized.notna(), None)
+
+    records: list[dict[str, Any]] = []
+    for _, row in normalized.iterrows():
+        record: dict[str, Any] = {"portfolio_id": portfolio_id}
+        for col, value in row.items():
+            if value is None:
+                record[col] = None
+                continue
+            if col in ("start_date", "end_date"):
+                # Dates land here as pandas Timestamps after coerce_types.
+                # ISO-format them for the jsonb-friendly REST API.
+                if isinstance(value, pd.Timestamp):
+                    record[col] = value.strftime("%Y-%m-%d")
+                else:
+                    record[col] = str(value)
+                continue
+            if col == "anomaly_flags":
+                # Already a list[str]; the SDK serializes to jsonb.
+                record[col] = list(value)
+                continue
+            # Numeric + text columns: rely on native Python types via
+            # the object-cast. Cast numpy scalars defensively.
+            if hasattr(value, "item"):
+                value = value.item()
+            if col in _INT_COLUMNS and value is not None:
+                # Medians return floats even for integer columns; round
+                # to nearest to avoid 22P02 "invalid syntax for integer".
+                record[col] = int(round(float(value)))
+                continue
+            record[col] = value
+        records.append(record)
+    return records
+
+
 @app.post("/ingest", response_model=IngestResponse)
 def ingest(
     req: IngestRequest,
     _: Annotated[None, Depends(require_internal_token)],
 ) -> IngestResponse:
-    # TODO(claude): Phase 1 — download CSV from Storage, clean, insert into projects.
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "ingest not implemented yet")
+    """Download a CSV from Storage, clean it, and populate `projects`.
+
+    Idempotent: re-ingesting the same `portfolio_id` deletes the prior
+    project rows first, so running twice yields the same row count —
+    not double. See ARCHITECTURE.md § Data Flow Diagrams (CSV Upload).
+    """
+    client = get_supabase()
+    portfolio_id = req.portfolio_id
+
+    # SECURITY: log the portfolio_id only — never the storage path's raw
+    # bytes or any cell values. storage_path itself is user-influenced
+    # but non-sensitive (it's a UUID folder), so we include it for ops.
+    logger.info("ingest.start portfolio_id=%s", portfolio_id)
+
+    # ---- 1. Portfolio must exist ----
+    portfolio_row = (
+        client.table("portfolios").select("id").eq("id", portfolio_id).limit(1).execute()
+    )
+    if not portfolio_row.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "portfolio not found", "portfolio_id": portfolio_id},
+        )
+
+    # ---- 2. Download CSV from Storage ----
+    object_path = _normalize_storage_path(req.storage_path)
+    try:
+        raw_bytes: bytes = client.storage.from_(_STORAGE_BUCKET).download(object_path)
+    except Exception as exc:  # noqa: BLE001 — SDK raises a variety of subclasses
+        # WHY: we log the exception message but NOT bearer tokens or keys.
+        # The exception from the storage SDK is a generic StorageApiError
+        # that includes the requested path; that's fine to surface.
+        logger.warning(
+            "ingest.storage_download_failed portfolio_id=%s error=%s",
+            portfolio_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "csv not found at storage_path",
+                "storage_path": req.storage_path,
+            },
+        ) from exc
+
+    # ---- 3. Clean ----
+    try:
+        cleaned_df, report = cleaning.clean(raw_bytes)
+    except ValueError as exc:
+        # `parse_csv` raises ValueError for missing required columns.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "malformed CSV", "details": str(exc)},
+        ) from exc
+
+    # ---- 4. Delete existing rows for this portfolio (idempotent) ----
+    # WHY: delete-then-insert beats upsert here because project_id_external
+    # isn't unique across portfolios and we have no natural composite key.
+    # WHY: delete-then-insert is idempotent under sequential access only.
+    # Two concurrent /ingest calls for the same portfolio_id can interleave
+    # and double-insert. Acceptable for MVP (single-user demo mode per
+    # ARCHITECTURE.md § Security Model); if we go multi-user we either need
+    # a DB-level unique constraint + upsert or to wrap this in a transaction.
+    client.table("projects").delete().eq("portfolio_id", portfolio_id).execute()
+
+    # ---- 5. Insert cleaned rows ----
+    records = _df_to_records(cleaned_df, portfolio_id)
+    if records:
+        client.table("projects").insert(records).execute()
+
+    # ---- 6. Update portfolio metadata ----
+    anomaly_count = int(sum(1 for flags in cleaned_df["anomaly_flags"] if flags))
+    row_count = int(len(cleaned_df))
+    # `report` is a TypedDict — a plain dict at runtime, directly jsonb-safe.
+    client.table("portfolios").update(
+        {
+            "row_count": row_count,
+            "anomaly_count": anomaly_count,
+            "cleaning_report": dict(report),
+        }
+    ).eq("id", portfolio_id).execute()
+
+    logger.info(
+        "ingest.done portfolio_id=%s row_count=%d anomaly_count=%d",
+        portfolio_id,
+        row_count,
+        anomaly_count,
+    )
+
+    return IngestResponse(
+        portfolio_id=portfolio_id,
+        row_count=row_count,
+        cleaning_report=CleaningReport(**report),
+        anomaly_count=anomaly_count,
+    )
 
 
 @app.post("/train", response_model=TrainResponse)
