@@ -59,8 +59,11 @@ Goal: the three runtimes can talk to each other and to the database. Still no us
       <!-- NOTE: project `enlaye` under zh-3135s-projects; NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, INTERNAL_API_TOKEN, ML_SERVICE_URL all set for production. -->
 - [x] Railway: `railway init` (or `railway link`), then `railway variables set KEY=value` for service env (CLI, no dashboard)
       <!-- NOTE: project `enlaye-ml-service` / service `ml-service`; public URL https://ml-service-production-513e.up.railway.app. -->
-- [ ] `git push origin main` — verify Vercel and Railway auto-build via `vercel logs` and `railway logs`
-- [ ] Curl-check prod URLs (`/` for frontend, `/health` for ml-service)
+- [x] `git push origin main` — verify Vercel and Railway auto-build via `vercel logs` and `railway logs`
+      <!-- NOTE: Railway was created as empty service (not GH-linked) so ML deploys run via `railway up --detach` from CLI. Vercel deployed via `vercel --prod`; GH integration can be wired later if desired. First deploy 404'd because project had framework=null — fixed by adding `frontend/vercel.json` with `"framework": "nextjs"`. -->
+- [x] Curl-check prod URLs (`/` for frontend, `/health` for ml-service)
+      <!-- NOTE: https://enlaye-five.vercel.app/ → 200; /api/ml/health → 200 {db_reachable:true}; /api/ml/docs and /api/ml/openapi.json → 404 (allowlist working). Railway: https://ml-service-production-513e.up.railway.app/health → 200. -->
+
 
 **Acceptance:** Prod frontend loads a page that reads from the prod DB. Prod Python service `/health` responds. Commit messages follow convention (see CONVENTIONS.md).
 
