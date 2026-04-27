@@ -2,7 +2,7 @@
 
 > A full-stack risk analytics platform for construction portfolio managers. Upload a project history CSV, explore anomalies and KPI trends, compare dispute-prediction models side-by-side, chat with uploaded documents via RAG, and screen new deals against your own portfolio history using a k-nearest-neighbor algorithm — all from a single dashboard.
 
-**Production:** [enlaye.com](https://enlaye.com) · **Demo:** [enlaye-five.vercel.app](https://enlaye-five.vercel.app)
+**Demo:** [enlaye-five.vercel.app](https://enlaye-five.vercel.app)
 
 ---
 
